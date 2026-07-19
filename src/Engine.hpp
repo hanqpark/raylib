@@ -43,6 +43,7 @@ private:
         m_player.x += cmd.dx * m_player.speed * dt;
         m_player.y += cmd.dy * m_player.speed * dt;
 
+        // [교재 내용 적용] 화면 밖으로 나가지 못하게 좌표(Config::WindowWidth 등)로 제한
         if (m_player.x < m_player.radius) m_player.x = m_player.radius;
         if (m_player.x > Config::WindowWidth - m_player.radius) m_player.x = Config::WindowWidth - m_player.radius;
         if (m_player.y < m_player.radius) m_player.y = m_player.radius;
@@ -51,25 +52,28 @@ private:
 
     // m_renderPipeline의 상태를 변경하므로 const를 제거합니다.
     void Render() noexcept {
-        // 1. Queueing: 비즈니스 데이터를 렌더링 커맨드로 변환하여 적재
+        // --- [교재 실습: 도형의 기준점과 좌표 계산] ---
 
-        // 이동하는 플레이어(원)
+        // 실습 1. (0, 0) 원점 증명
+        // 사각형은 '좌측 상단'이 기준점이므로, (0,0)에 그리면 화면 왼쪽 맨 위에 딱 붙어서 그려집니다.
+        m_renderPipeline.PushRectangle(0.0f, 0.0f, Config::SampleRectWidth, Config::SampleRectHeight, BLUE);
+
+        // 실습 2. 사각형을 정확히 화면 중앙에 배치하기 위한 오프셋(Offset) 계산
+        // 사각형을 중앙에 두려면 '화면 중앙 좌표 - (내 크기의 절반)'을 해야 합니다.
+        // [HFT 설계] 이 나눗셈과 뺄셈 연산 역시 constexpr을 이용해 컴파일 타임에 미리 끝내버립니다.
+        constexpr float centeredRectX = Config::ScreenCenterX - (Config::SampleRectWidth / 2.0f);
+        constexpr float centeredRectY = Config::ScreenCenterY - (Config::SampleRectHeight / 2.0f);
+        
+        m_renderPipeline.PushRectangle(centeredRectX, centeredRectY, Config::SampleRectWidth, Config::SampleRectHeight, DARKGRAY);
+
+        // 실습 3. 원의 기준점 증명 (동적으로 움직이는 플레이어)
+        // 원은 '중심점'이 기준이므로, 추가 연산 없이 바로 그리면 됩니다.
         m_renderPipeline.PushCircle(m_player.x, m_player.y, m_player.radius, m_player.color);
 
-        // 이전 실습의 정적 도형 테스트 데이터 (적과 총알 궤적 가상)
-        m_renderPipeline.PushRectangle(50.0f, 50.0f, 40.0f, 40.0f, RED);
-        m_renderPipeline.PushLine(400.0f, 300.0f, 750.0f, 100.0f, BLACK);
-
-        // 2. 렌더링 실행
-        
-        // ClearBackground 포함
-        m_window.BeginRender();
-        
-        // HFT 스타일 순차 메모리 렌더링
-        m_renderPipeline.Flush();
-
-        // 로우레이턴시 진단용 FPS 카운터
-        DrawFPS(10, 10);
+        /** 렌더링 파이프라인 일괄 처리(Flush) **/
+        m_window.BeginRender();    // ClearBackground 포함
+        m_renderPipeline.Flush();  // HFT 스타일 순차 메모리 렌더링
+        DrawFPS(10, 10);           // 로우레이턴시 진단용 FPS 카운터
         m_window.EndRender();
     }
 

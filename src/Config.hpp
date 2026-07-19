@@ -22,4 +22,14 @@ namespace Config {
 
     // [HFT 추가] Zero-Allocation 메모리 풀의 고정 크기 지정
     constexpr std::size_t MaxRenderCommands = 10000;
+
+    // [HFT 추가] 교재 실습용 상수 및 컴파일 타임(Compile-time) 사전 연산
+    // 화면 크기가 변경되어도 아래의 중앙 좌표는 컴파일러가 빌드할 때 자동으로 다시 계산해 둡니다.
+    // 즉, 런타임(게임 실행 중)에는 나눗셈 연산 오버헤드가 '제로'가 됩니다.
+    constexpr float ScreenCenterX = WindowWidth / 2.0f;
+    constexpr float ScreenCenterY = WindowHeight / 2.0f;
+
+    // 테스트용 사각형 크기 상수화 (매직 넘버 제거)
+    constexpr float SampleRectWidth = 100.0f;
+    constexpr float SampleRectHeight = 50.0f;
 }
