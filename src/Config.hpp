@@ -19,4 +19,7 @@ namespace Config {
     constexpr float PlayerSpeed = 300.0f; // 초당 이동 픽셀 (float형 명시)
     constexpr float PlayerRadius = 25.0f;
     constexpr Color PlayerColor = MAROON;
+
+    // [HFT 추가] Zero-Allocation 메모리 풀의 고정 크기 지정
+    constexpr std::size_t MaxRenderCommands = 10000;
 }

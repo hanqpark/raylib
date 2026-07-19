@@ -3,6 +3,7 @@
 #include "Config.hpp"
 #include "InputManager.hpp"
 #include "Player.hpp"
+#include "RenderPipeline.hpp"
 
 class Engine final {
 public:
@@ -48,15 +49,27 @@ private:
         if (m_player.y > Config::WindowHeight - m_player.radius) m_player.y = Config::WindowHeight - m_player.radius;
     }
 
-    void Render() const noexcept {
+    // m_renderPipeline의 상태를 변경하므로 const를 제거합니다.
+    void Render() noexcept {
+        // 1. Queueing: 비즈니스 데이터를 렌더링 커맨드로 변환하여 적재
+
+        // 이동하는 플레이어(원)
+        m_renderPipeline.PushCircle(m_player.x, m_player.y, m_player.radius, m_player.color);
+
+        // 이전 실습의 정적 도형 테스트 데이터 (적과 총알 궤적 가상)
+        m_renderPipeline.PushRectangle(50.0f, 50.0f, 40.0f, 40.0f, RED);
+        m_renderPipeline.PushLine(400.0f, 300.0f, 750.0f, 100.0f, BLACK);
+
+        // 2. 렌더링 실행
+        
+        // ClearBackground 포함
         m_window.BeginRender();
         
-        // PlayerState의 데이터를 렌더링 API에 바인딩
-        DrawCircle(static_cast<int>(m_player.x), static_cast<int>(m_player.y), m_player.radius, m_player.color);
+        // HFT 스타일 순차 메모리 렌더링
+        m_renderPipeline.Flush();
 
         // 로우레이턴시 진단용 FPS 카운터
         DrawFPS(10, 10);
-
         m_window.EndRender();
     }
 
@@ -67,4 +80,6 @@ private:
     // 상태 데이터를 담는 POD 구조체 인스턴스
     PlayerState m_player;
     
+    // [HFT 추가] 화면 렌더링 큐를 관리하는 객체
+    RenderPipeline m_renderPipeline;
 };
