@@ -11,7 +11,7 @@ namespace Config {
     constexpr int WindowHeight = 450;
     
     // Chapter 11. std::string_view는 문자열의 '시작 주소'와 '길이'만 가지는 아주 가벼운 참조 구조체
-    constexpr std::string_view WindowTitle = "HFT Low-Latency Base v1.4 - Mouse & UI";
+    constexpr std::string_view WindowTitle = "HFT Low-Latency Base v1.5 - Time & Frames";
     constexpr int TargetFPS = 60;
     constexpr Color BackgroundColor = RAYWHITE;
 
@@ -33,9 +33,12 @@ namespace Config {
     constexpr float SampleRectWidth = 100.0f;
     constexpr float SampleRectHeight = 50.0f;
 
-    /* Chapter 15. 마우스 클릭 테스트용 UI 버튼 영역 설정 (매직 넘버 제거) */
+    // Chapter 15. 마우스 클릭 테스트용 UI 버튼 영역 설정 (매직 넘버 제거)
     constexpr float UIButtonX = 350.0f;
     constexpr float UIButtonY = 350.0f;
     constexpr float UIButtonWidth = 100.0f;
     constexpr float UIButtonHeight = 40.0f;
+
+    // Chapter 16.  교재 실습용 누적 타이머 주기 (3초)
+    constexpr float HeartbeatInterval = 3.0f;
 }

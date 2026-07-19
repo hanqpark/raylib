@@ -74,6 +74,21 @@ private:
         if (isMouseOverButton && cmd.leftClickPressed) {
             m_isButtonActive = !m_isButtonActive; // 버튼 상태 토글
         }
+
+        // --- 4. [추가] 논블로킹 누적 타이머 (Heartbeat / Timer) ---
+        m_timeAccumulator += dt; // 매 프레임의 시간을 누적
+
+        // 누적된 시간이 우리가 설정한 간격(3초)을 넘었는지 확인
+        if (m_timeAccumulator >= Config::HeartbeatInterval) {
+            // [HFT 미세 팁] m_timeAccumulator = 0.0f; 로 초기화하지 않습니다!
+            // 프레임 시간이 정확히 3.0이 아니라 3.016초일 수 있습니다.
+            // 0으로 덮어쓰면 0.016초의 오차가 매번 유실(Drift)되어 나중에는 스텝이 완전히 꼬입니다.
+            // 초과한 기준치(3.0)만 빼주어 잔여 시간을 다음 주기로 이월시켜야 정확도가 유지됩니다.
+            m_timeAccumulator -= Config::HeartbeatInterval;
+
+            // 3초마다 수행할 로직 (UI 상태 토글)
+            m_heartbeatState = !m_heartbeatState;
+        }
     }
 
     // m_renderPipeline의 상태를 변경하므로 const를 제거합니다.
@@ -106,6 +121,10 @@ private:
         Color cursorColor = cmd.leftClickDown ? RED : MAROON;
         m_renderPipeline.PushCircle(cmd.mouseX, cmd.mouseY, 5.0f, cursorColor);
 
+        // Chapter 16. 3초마다 깜빡이는 하트비트 인디케이터 (화면 우측 상단)
+        Color heartbeatColor = m_heartbeatState ? RED : DARKGRAY;
+        m_renderPipeline.PushCircle(750.0f, 30.0f, 15.0f, heartbeatColor);
+
         /** 렌더링 파이프라인 일괄 처리(Flush) **/
         m_window.BeginRender();    // ClearBackground 포함
         m_renderPipeline.Flush();  // HFT 스타일 순차 메모리 렌더링
@@ -125,4 +144,8 @@ private:
 
     // Chapter 15.UI 버튼의 현재 활성화 상태
     bool m_isButtonActive{false};
+
+    // Chapter 16. 하트비트 타이머
+    float m_timeAccumulator{0.0f};
+    bool m_heartbeatState{false};
 };
