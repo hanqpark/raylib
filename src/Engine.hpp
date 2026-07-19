@@ -17,7 +17,6 @@ public:
         } {}
 
     ~Engine() noexcept = default;
-
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
 
@@ -40,6 +39,7 @@ public:
 
 private:
     void Update(float dt, const InputCommand& cmd) noexcept {
+        // --- 1. 연속성 상태 갱신 (IsKeyDown 기반) ---
         m_player.x += cmd.dx * m_player.speed * dt;
         m_player.y += cmd.dy * m_player.speed * dt;
 
@@ -48,6 +48,18 @@ private:
         if (m_player.x > Config::WindowWidth - m_player.radius) m_player.x = Config::WindowWidth - m_player.radius;
         if (m_player.y < m_player.radius) m_player.y = m_player.radius;
         if (m_player.y > Config::WindowHeight - m_player.radius) m_player.y = Config::WindowHeight - m_player.radius;
+
+        /* --- 2. 단발성 상태 갱신 (IsKeyPressed 기반) ---
+        // 교재의 "한 번의 입력에 한 번만 반응" 원리 증명.
+        // 스페이스바를 꾹 누르고 있어도 색상은 미친듯이 깜빡이지 않고 딱 한 번만 바뀝니다. */
+        if (cmd.fireAction) {
+            // 현재 색상이 원래 색상이면 파란색으로, 파란색이면 다시 원래 색상으로 변경
+            if (m_player.color.r == Config::PlayerColor.r) {
+                m_player.color = BLUE; 
+            } else {
+                m_player.color = Config::PlayerColor;
+            }
+        }
     }
 
     // m_renderPipeline의 상태를 변경하므로 const를 제거합니다.
