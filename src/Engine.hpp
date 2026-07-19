@@ -1,11 +1,19 @@
 #pragma once
 #include "Window.hpp"
+#include "Config.hpp"
+#include "InputManager.hpp"
+#include "Player.hpp"
 
 class Engine final {
 public:
     Engine() noexcept 
-        : m_textX(Config::WindowWidth / 4)
-        , m_textY(Config::WindowHeight / 2) {}
+        : m_player{
+            Config::WindowWidth / 2.0f, 
+            Config::WindowHeight / 2.0f, 
+            Config::PlayerSpeed, 
+            Config::PlayerRadius, 
+            Config::PlayerColor
+        } {}
 
     ~Engine() noexcept = default;
 
@@ -17,27 +25,35 @@ public:
             // HFT의 Tick 간격 계산과 동일한 물리 시간 델타값 확보
             float dt = GetFrameTime(); 
             
-            Update(dt);
+            // [교재의 핵심 3단계 파이프라인]
+            // 1. 입력 (Input Polling)
+            InputCommand cmd = InputManager::Poll();
+            
+            // 2. 갱신 (State Update)
+            Update(dt, cmd);
+            
+            // 3. 렌더링 (Render View)
             Render();
         }
     }
 
 private:
-    void Update(float dt) noexcept {
-        // 위키독스 가이드 연습: 매 프레임 글자를 우측으로 미세하게 이동 (픽셀/초 단위)
-        // 로우레이턴시 환경에서는 분기문(if)을 최소화하는 것이 좋으나, 화면 이탈 방지를 위해 제어
-        m_textX += static_cast<int>(50.0f * dt); 
-        if (m_textX > Config::WindowWidth) {
-            m_textX = -200; // 화면 왼쪽 밖으로 나가면 재진입
-        }
+    void Update(float dt, const InputCommand& cmd) noexcept {
+        m_player.x += cmd.dx * m_player.speed * dt;
+        m_player.y += cmd.dy * m_player.speed * dt;
+
+        if (m_player.x < m_player.radius) m_player.x = m_player.radius;
+        if (m_player.x > Config::WindowWidth - m_player.radius) m_player.x = Config::WindowWidth - m_player.radius;
+        if (m_player.y < m_player.radius) m_player.y = m_player.radius;
+        if (m_player.y > Config::WindowHeight - m_player.radius) m_player.y = Config::WindowHeight - m_player.radius;
     }
 
     void Render() const noexcept {
         m_window.BeginRender();
         
-        // 데이터(위치, 텍스트)를 렌더링 API에 바인딩
-        DrawText(Config::TargetText.data(), m_textX, m_textY, Config::FontSize, Config::TextColor);
-        
+        // PlayerState의 데이터를 렌더링 API에 바인딩
+        DrawCircle(static_cast<int>(m_player.x), static_cast<int>(m_player.y), m_player.radius, m_player.color);
+
         // 로우레이턴시 진단용 FPS 카운터
         DrawFPS(10, 10);
 
@@ -45,9 +61,10 @@ private:
     }
 
 private:
-    Window m_window; // RAII에 의해 가장 먼저 초기화되고 가장 나중에 파괴됨
+    // RAII에 의해 가장 먼저 초기화되고 가장 나중에 파괴됨
+    Window m_window; 
+
+    // 상태 데이터를 담는 POD 구조체 인스턴스
+    PlayerState m_player;
     
-    // Primitive Data 레이아웃 (CPU 캐시 적중률을 위해 연속된 메모리에 배치)
-    int m_textX;
-    int m_textY;
 };

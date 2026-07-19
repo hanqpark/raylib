@@ -15,11 +15,6 @@ namespace Config {
     constexpr int TargetFPS = 60;
     constexpr Color BackgroundColor = RAYWHITE;
 
-    // Part 2: 텍스트 렌더링 관련 컴파일 타임 설정
-    constexpr std::string_view TargetText = "Hello, raylib! - HFT Sandbox Engine";
-    constexpr int FontSize = 24;
-    constexpr Color TextColor = DARKBLUE;
-
     // Part 3: 플레이어(원형 도형) 컴파일 타임 설정
     constexpr float PlayerSpeed = 300.0f; // 초당 이동 픽셀 (float형 명시)
     constexpr float PlayerRadius = 25.0f;
