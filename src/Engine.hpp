@@ -121,9 +121,33 @@ private:
         Color cursorColor = cmd.leftClickDown ? RED : MAROON;
         m_renderPipeline.PushCircle(cmd.mouseX, cmd.mouseY, 5.0f, cursorColor);
 
-        // Chapter 16. 3초마다 깜빡이는 하트비트 인디케이터 (화면 우측 상단)
+        // --- [Chapter 16. 3초마다 깜빡이는 하트비트 인디케이터 (화면 우측 상단)] ---
         Color heartbeatColor = m_heartbeatState ? RED : DARKGRAY;
         m_renderPipeline.PushCircle(750.0f, 30.0f, 15.0f, heartbeatColor);
+
+        // --- [Chapter 17 실습: 텍스트 렌더링 및 디버깅 텍스트] ---
+
+        // 1. UI 버튼 위에 텍스트 중앙 정렬 렌더링 (MeasureText 활용)
+        const char* btnText = "CLICK";
+        int btnFontSize = 20;
+        int textWidth = MeasureText(btnText, btnFontSize);
+        
+        // 텍스트를 버튼 중앙에 배치하기 위한 좌표 계산
+        float textX = Config::UIButtonX + (Config::UIButtonWidth - textWidth) / 2.0f;
+        float textY = Config::UIButtonY + (Config::UIButtonHeight - btnFontSize) / 2.0f;
+        m_renderPipeline.PushText(textX, textY, btnText,btnFontSize, BLACK);
+
+        // 2. 동적 디버깅 텍스트 (Zero-Allocation Formatting)
+        // [HFT 미세 팁] std::to_string이나 힙 할당을 유발하는 포매팅을 금지합니다.
+        // raylib의 TextFormat은 내부적으로 재사용 가능한 정적(static) char 배열을 사용하여
+        // 런타임 메모리 할당(new/malloc)을 완전히 차단합니다.
+        const char* debugInfo = TextFormat("Player Pos: (%.1f, %.1f) | Timer: %.2f", m_player.x, m_player.y, m_timeAccumulator);
+        m_renderPipeline.PushText(10.0f, Config::WindowHeight - 30.0f, debugInfo, 20, DARKGRAY);
+
+        // 3. 교재 실습용 타이틀 (상단 중앙 정렬)
+        const char* titleText = "Chapter 17: Text & Zero-Allocation";
+        int titleWidth = MeasureText(titleText, 20);
+        m_renderPipeline.PushText(Config::ScreenCenterX - (titleWidth / 2.0f), 10.0f, titleText, 20, MAROON);
 
         /** 렌더링 파이프라인 일괄 처리(Flush) **/
         m_window.BeginRender();    // ClearBackground 포함
