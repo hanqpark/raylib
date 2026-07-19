@@ -10,26 +10,32 @@ namespace Config {
     constexpr int WindowWidth = 800;
     constexpr int WindowHeight = 450;
     
-    // std::string_view는 문자열의 '시작 주소'와 '길이'만 가지는 아주 가벼운 참조 구조체
-    constexpr std::string_view WindowTitle = "HFT Low-Latency Base v1.1";
+    // Chapter 11. std::string_view는 문자열의 '시작 주소'와 '길이'만 가지는 아주 가벼운 참조 구조체
+    constexpr std::string_view WindowTitle = "HFT Low-Latency Base v1.4 - Mouse & UI";
     constexpr int TargetFPS = 60;
     constexpr Color BackgroundColor = RAYWHITE;
 
-    // Part 3: 플레이어(원형 도형) 컴파일 타임 설정
+    // Chapter 12. 플레이어(원형 도형) 컴파일 타임 설정
     constexpr float PlayerSpeed = 300.0f; // 초당 이동 픽셀 (float형 명시)
     constexpr float PlayerRadius = 25.0f;
     constexpr Color PlayerColor = MAROON;
 
-    // [HFT 추가] Zero-Allocation 메모리 풀의 고정 크기 지정
+    // Chapter 13. Zero-Allocation 메모리 풀의 고정 크기 지정
     constexpr std::size_t MaxRenderCommands = 10000;
 
-    // [HFT 추가] 교재 실습용 상수 및 컴파일 타임(Compile-time) 사전 연산
+    /* Chapter 14. C교재 실습용 상수 및 컴파일 타임(Compile-time) 사전 연산
     // 화면 크기가 변경되어도 아래의 중앙 좌표는 컴파일러가 빌드할 때 자동으로 다시 계산해 둡니다.
-    // 즉, 런타임(게임 실행 중)에는 나눗셈 연산 오버헤드가 '제로'가 됩니다.
+    // 즉, 런타임(게임 실행 중)에는 나눗셈 연산 오버헤드가 '제로'가 됩니다. */
     constexpr float ScreenCenterX = WindowWidth / 2.0f;
     constexpr float ScreenCenterY = WindowHeight / 2.0f;
 
     // 테스트용 사각형 크기 상수화 (매직 넘버 제거)
     constexpr float SampleRectWidth = 100.0f;
     constexpr float SampleRectHeight = 50.0f;
+
+    /* Chapter 15. 마우스 클릭 테스트용 UI 버튼 영역 설정 (매직 넘버 제거) */
+    constexpr float UIButtonX = 350.0f;
+    constexpr float UIButtonY = 350.0f;
+    constexpr float UIButtonWidth = 100.0f;
+    constexpr float UIButtonHeight = 40.0f;
 }

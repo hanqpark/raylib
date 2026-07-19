@@ -33,7 +33,7 @@ public:
             Update(dt, cmd);
             
             // 3. 렌더링 (Render View)
-            Render();
+            Render(cmd);
         }
     }
 
@@ -60,11 +60,25 @@ private:
                 m_player.color = Config::PlayerColor;
             }
         }
+
+        /* --- 3. [추가] 마우스 UI 버튼 로직 (Bounds Check) ---
+        // 교재 내용: "마우스 x 좌표가 버튼의 왼쪽과 오른쪽 사이에 있고, y 좌표가 위쪽과 아래쪽 사이에 있으면..."
+        // 이 논리는 HFT의 Price Band(가격 상하한선) 체크와 완전히 동일한 분기 구조를 가집니다. */
+        bool isMouseOverButton =
+            (cmd.mouseX >= Config::UIButtonX) & 
+            (cmd.mouseX <= Config::UIButtonX + Config::UIButtonWidth) &
+            (cmd.mouseY >= Config::UIButtonY) & 
+            (cmd.mouseY <= Config::UIButtonY + Config::UIButtonHeight);
+
+        // 마우스가 버튼 위에 '있고(AND)', '단발성 클릭'이 발생했다면 버튼 액션 수행
+        if (isMouseOverButton && cmd.leftClickPressed) {
+            m_isButtonActive = !m_isButtonActive; // 버튼 상태 토글
+        }
     }
 
     // m_renderPipeline의 상태를 변경하므로 const를 제거합니다.
-    void Render() noexcept {
-        // --- [교재 실습: 도형의 기준점과 좌표 계산] ---
+    void Render(const InputCommand& cmd) noexcept {
+        // --- [Chapter 13 실습: 도형의 기준점과 좌표 계산] ---
 
         // 실습 1. (0, 0) 원점 증명
         // 사각형은 '좌측 상단'이 기준점이므로, (0,0)에 그리면 화면 왼쪽 맨 위에 딱 붙어서 그려집니다.
@@ -78,9 +92,19 @@ private:
         
         m_renderPipeline.PushRectangle(centeredRectX, centeredRectY, Config::SampleRectWidth, Config::SampleRectHeight, DARKGRAY);
 
-        // 실습 3. 원의 기준점 증명 (동적으로 움직이는 플레이어)
+        // --- [Chapter 15 실습: 도형의 기준점과 좌표 계산] ---
+        // 1. 원의 기준점 증명 (동적으로 움직이는 플레이어)
         // 원은 '중심점'이 기준이므로, 추가 연산 없이 바로 그리면 됩니다.
         m_renderPipeline.PushCircle(m_player.x, m_player.y, m_player.radius, m_player.color);
+
+        // 2. UI 버튼 렌더링 (상태에 따라 색상 변경)
+        Color btnColor = m_isButtonActive ? LIME : GRAY;
+        m_renderPipeline.PushRectangle(Config::UIButtonX, Config::UIButtonY, Config::UIButtonWidth, Config::UIButtonHeight, btnColor);
+
+        // 3. 교재 실습: "원을 마우스 위치에 그리면 마우스를 따라다니는 것처럼 보입니다"
+        // 마우스 커서 역할을 할 작은 빨간색 원 (클릭 상태일 때 투명도 변경)
+        Color cursorColor = cmd.leftClickDown ? RED : MAROON;
+        m_renderPipeline.PushCircle(cmd.mouseX, cmd.mouseY, 5.0f, cursorColor);
 
         /** 렌더링 파이프라인 일괄 처리(Flush) **/
         m_window.BeginRender();    // ClearBackground 포함
@@ -96,6 +120,9 @@ private:
     // 상태 데이터를 담는 POD 구조체 인스턴스
     PlayerState m_player;
     
-    // [HFT 추가] 화면 렌더링 큐를 관리하는 객체
+    // 화면 렌더링 큐를 관리하는 객체
     RenderPipeline m_renderPipeline;
+
+    // Chapter 15.UI 버튼의 현재 활성화 상태
+    bool m_isButtonActive{false};
 };
