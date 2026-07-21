@@ -1,5 +1,6 @@
 #pragma once
 #include <cmath>
+#include <cstdint>
 #include "Window.hpp"
 #include "Config.hpp"
 #include "InputManager.hpp"
@@ -7,27 +8,18 @@
 #include "Ball.hpp"
 #include "RenderPipeline.hpp"
 
+// [HFT Optimization]: 1바이트 크기의 엄격한 타입(Enum Class)으로 FSM(유한 상태 기계) 구성
+enum class GameState : uint8_t {
+    Playing = 0,
+    GameOver
+};
+
 class Engine final {
 public:
-    Engine() noexcept 
-// [Chapter 28 적용] 플레이어 패들을 화면 하단 중앙으로 세팅
-        : m_player{
-            Config::ScreenCenterX - (Config::PaddleWidth / 2.0f),
-            Config::PaddleY,
-            Config::PaddleWidth,
-            Config::PaddleHeight,
-            Config::PlayerSpeed, 
-            Config::Theme::PlayerNormal
-        },
-        // [Chapter 25 적용] 공의 시작 위치를 Play Area 내부 중앙으로 맞추고 테마 색상 적용
-        m_ball{
-            Config::BallInitialX,
-            Config::BallInitialY,
-            Config::BallSpeedX,
-            Config::BallSpeedY,
-            Config::BallRadius,
-            Config::Theme::Ball
-        } {}
+
+    Engine() noexcept {
+        ResetGame();
+    }
 
     ~Engine() noexcept = default;
     Engine(const Engine&) = delete;
@@ -51,7 +43,45 @@ public:
     }
 
 private:
+    // [Chapter 30 추가] 메모리 재할당 없는 결정론적 상태 리셋 (Deterministic Reset)
+    void ResetGame() noexcept {
+        m_gameState = GameState::Playing;
+        m_score = 0;
+
+        // [Chapter 28 적용] 플레이어 패들을 화면 하단 중앙으로 세팅
+        // C++17 Aggregate Initialization을 통한 덮어쓰기
+        m_player = PlayerState{
+            Config::ScreenCenterX - (Config::PaddleWidth / 2.0f),
+            Config::PaddleY,
+            Config::PaddleWidth,
+            Config::PaddleHeight,
+            Config::PlayerSpeed, 
+            Config::Theme::PlayerNormal
+        };
+        // [Chapter 25 적용] 공의 시작 위치를 Play Area 내부 중앙으로 맞추고 테마 색상 적용
+        m_ball = BallState{
+            Config::BallInitialX,
+            Config::BallInitialY,
+            Config::BallSpeedX,
+            Config::BallSpeedY,
+            Config::BallRadius,
+            Config::Theme::Ball
+        };
+    }
     void Update(float dt, const InputCommand& cmd) noexcept {
+        // --- [HFT FSM] 상태에 따른 조기 차단 (Early Exit) ---
+        // 게임 오버 상태라면 물리 연산을 전부 건너뛰어 CPU 사이클 절약
+        if (m_gameState == GameState::GameOver) {
+            if (cmd.restartAction) {
+                ResetGame(); // 엔터 키 입력 시 즉각적인 무할당 상태 복구
+            }
+            return; 
+        }
+
+        // ==========================================
+        // 아래 로직은 GameState::Playing 상태일 때만 실행됩니다.
+        // ==========================================
+
         // --- 1. [Chapter 28 변경] 패들 1D(좌우) 위치 갱신 ---
         // 상하 이동(cmd.dy)은 완전히 무시하고 좌우 이동(cmd.dx)만 반영합니다.
         m_player.x += cmd.dx * m_player.speed * dt;
@@ -88,10 +118,9 @@ private:
             m_ball.y = Config::PlayAreaY + m_ball.radius;   // 1. 위치 보정 (Clamping)
             m_ball.vy = std::abs(m_ball.vy);               // 2. 아래쪽 방향(+) 속도 강제 지정
         }
-        // [하단 벽 충돌]
-        else if (m_ball.y + m_ball.radius >= Config::WindowHeight) {
-            m_ball.y = Config::WindowHeight - m_ball.radius; // 1. 위치 보정 (Clamping)
-            m_ball.vy = -std::abs(m_ball.vy);               // 2. 위쪽 방향(-) 속도 강제 지정
+        // [Chapter 30 변경] 기존의 하단 반사 로직을 '게임 오버 판정'으로 교체
+        else if (m_ball.y + m_ball.radius > Config::WindowHeight) {
+            m_gameState = GameState::GameOver; // 1. 게임 오버 상태 전환
         }
 
         /* --- 3. 단발성 상태 갱신 (IsKeyPressed 기반) ---
@@ -131,8 +160,26 @@ private:
                 if (hitOffset < -1.0f) hitOffset = -1.0f;
                 if (hitOffset > 1.0f) hitOffset = 1.0f;
 
-                // 타격 지점에 비례하여 X축 속도를 변동시킴 (중앙: 직수직, 외곽: 빗겨 튕김)
-                m_ball.vx = hitOffset * Config::BallSpeedX * 1.5f;
+                // ==========================================================
+                // 3. [핵심 수정] 벡터 정규화를 통한 총 속력(Magnitude) 보존
+                // ==========================================================
+                // 충돌 직전의 실제 속력을 피타고라스 정리로 계산하여 백업
+                float currentSpeed = std::sqrt(m_ball.vx * m_ball.vx + m_ball.vy * m_ball.vy);
+
+                // 반사될 방향 벡터 설정 (x는 타격 위치 비례, y는 무조건 위쪽)
+                float dirX = hitOffset * 1.5f;
+                float dirY = -1.0f;
+
+                // 방향 벡터의 길이(Length) 계산
+                float length = std::sqrt(dirX * dirX + dirY * dirY);
+
+                // 길이를 1로 만든 단위 벡터(Unit Vector)에 기존 속력을 곱해 x, y축으로 재분배
+                m_ball.vx = (dirX / length) * currentSpeed;
+                m_ball.vy = (dirY / length) * currentSpeed;
+                // ==========================================================
+
+                // [Chapter 30 추가] 패들에 공을 튕겨낼 때마다 점수 증가
+                m_score += 10;
             }
         }
 
@@ -168,16 +215,15 @@ private:
 
     // m_renderPipeline의 상태를 변경하므로 const를 제거합니다.
     void Render(const InputCommand& cmd) noexcept {
-// =================================================================
+        // =================================================================
         // LAYER 1: UI Dashboard & Telemetry Panel (상단 70px)
         // =================================================================
         // 1-1. 대시보드 배경
         m_renderPipeline.PushRectangle(0.0f, 0.0f, Config::WindowWidth, Config::UIPanelHeight, Config::Theme::UIPanelBg);
 
-        // 1-2. 대시보드 타이틀
-        const char* titleText = "System Status Dashboard";
-        int titleWidth = MeasureText(titleText, 18);
-        m_renderPipeline.PushText(Config::ScreenCenterX - (titleWidth / 2.0f), 8.0f, titleText, 18, Config::Theme::TextTitle);
+        // 1-2. [Chapter 30 변경] 타이틀 대신 현재 점수(Score) 출력
+        const char* scoreText = TextFormat("SCORE: %u", m_score);
+        m_renderPipeline.PushText(Config::ScreenCenterX - 40.0f, 15.0f, scoreText, 20, Config::Theme::TextTitle);
 
         // 1-3. 텔레메트리 디버그 정보 (좌측)
         const char* debugInfo = TextFormat("Paddle X: %.1f | Timer: %.2f", m_player.x, m_timeAccumulator);
@@ -210,12 +256,25 @@ private:
 
 
         // =================================================================
-        // LAYER 3: Overlay (Mouse Cursor)
+        // LAYER 3: Overlay (Mouse Cursor & Game Over)
         // =================================================================
         // 마우스 커서는 화면 내 모든 요소보다 위에 있어야 하므로 가장 마지막에 렌더링 큐에 넣습니다.
         Color cursorColor = cmd.leftClickDown ? Config::Theme::HeartbeatActive : Config::Theme::PlayerNormal;
         m_renderPipeline.PushCircle(cmd.mouseX, cmd.mouseY, 5.0f, cursorColor);
 
+        // [Chapter 30 추가] 게임 오버 상태일 때 반투명 오버레이 렌더링
+        if (m_gameState == GameState::GameOver) {
+            m_renderPipeline.PushRectangle(0.0f, Config::PlayAreaY, Config::WindowWidth, Config::WindowHeight - Config::PlayAreaY, Fade(BLACK, 0.7f));
+            
+            const char* goText = "GAME OVER";
+            const char* rsText = "Press ENTER to Restart";
+            
+            int goWidth = MeasureText(goText, 40);
+            int rsWidth = MeasureText(rsText, 20);
+
+            m_renderPipeline.PushText(Config::ScreenCenterX - (goWidth / 2.0f), Config::ScreenCenterY - 30.0f, goText, 40, RED);
+            m_renderPipeline.PushText(Config::ScreenCenterX - (rsWidth / 2.0f), Config::ScreenCenterY + 20.0f, rsText, 20, RAYWHITE);
+        }
 
         // =================================================================
         // Flush Render Commands
@@ -239,7 +298,11 @@ private:
     // 화면 렌더링 큐를 관리하는 객체
     RenderPipeline m_renderPipeline;
 
-    // Chapter 15.UI 버튼의 현재 활성화 상태
+    // Chapter 30. 상태 및 점수 변수
+    GameState m_gameState;
+    uint32_t m_score;
+
+    // Chapter 15. UI 버튼의 현재 활성화 상태
     bool m_isButtonActive{false};
 
     // Chapter 16. 하트비트 타이머
