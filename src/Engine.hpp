@@ -8,12 +8,13 @@
 class Engine final {
 public:
     Engine() noexcept 
+        // [Chapter 18 적용] 플레이어의 시작 위치를 Play Area 내부 중앙으로 맞추고 테마 색상 적용
         : m_player{
-            Config::WindowWidth / 2.0f, 
-            Config::WindowHeight / 2.0f, 
+            Config::ScreenCenterX,
+            Config::PlayAreaY + (Config::PlayAreaHeight / 2.0f),
             Config::PlayerSpeed, 
             Config::PlayerRadius, 
-            Config::PlayerColor
+            Config::Theme::PlayerNormal
         } {}
 
     ~Engine() noexcept = default;
@@ -43,25 +44,27 @@ private:
         m_player.x += cmd.dx * m_player.speed * dt;
         m_player.y += cmd.dy * m_player.speed * dt;
 
-        // [교재 내용 적용] 화면 밖으로 나가지 못하게 좌표(Config::WindowWidth 등)로 제한
+        // [Chapter 18 적용] 레이아웃 분리에 따른 Bounds Check
+        // 플레이어가 UI 패널(PlayAreaY) 위로 올라가지 못하도록 상단 한계선을 조정합니다.
         if (m_player.x < m_player.radius) m_player.x = m_player.radius;
         if (m_player.x > Config::WindowWidth - m_player.radius) m_player.x = Config::WindowWidth - m_player.radius;
-        if (m_player.y < m_player.radius) m_player.y = m_player.radius;
+        if (m_player.y < Config::PlayAreaY + m_player.radius) m_player.y = Config::PlayAreaY + m_player.radius;
         if (m_player.y > Config::WindowHeight - m_player.radius) m_player.y = Config::WindowHeight - m_player.radius;
 
         /* --- 2. 단발성 상태 갱신 (IsKeyPressed 기반) ---
         // 교재의 "한 번의 입력에 한 번만 반응" 원리 증명.
-        // 스페이스바를 꾹 누르고 있어도 색상은 미친듯이 깜빡이지 않고 딱 한 번만 바뀝니다. */
+        // 스페이스바를 꾹 누르고 있어도 색상은 미친듯이 깜빡이지 않고 딱 한 번만 바뀝니다. 
+        // [Chapter 18 적용] 하드코딩된 색상 대신 시맨틱 컬러 사용 */
         if (cmd.fireAction) {
             // 현재 색상이 원래 색상이면 파란색으로, 파란색이면 다시 원래 색상으로 변경
-            if (m_player.color.r == Config::PlayerColor.r) {
-                m_player.color = BLUE; 
+            if (m_player.color.r == Config::Theme::PlayerNormal.r) {
+                m_player.color = Config::Theme::PlayerAction;
             } else {
-                m_player.color = Config::PlayerColor;
+                m_player.color = Config::Theme::PlayerNormal;
             }
         }
 
-        /* --- 3. [추가] 마우스 UI 버튼 로직 (Bounds Check) ---
+        /* --- 3. 마우스 UI 버튼 로직 (Bounds Check) ---
         // 교재 내용: "마우스 x 좌표가 버튼의 왼쪽과 오른쪽 사이에 있고, y 좌표가 위쪽과 아래쪽 사이에 있으면..."
         // 이 논리는 HFT의 Price Band(가격 상하한선) 체크와 완전히 동일한 분기 구조를 가집니다. */
         bool isMouseOverButton =
@@ -93,66 +96,56 @@ private:
 
     // m_renderPipeline의 상태를 변경하므로 const를 제거합니다.
     void Render(const InputCommand& cmd) noexcept {
-        // --- [Chapter 13 실습: 도형의 기준점과 좌표 계산] ---
+        // --- 1. 배경 및 UI 패널 레이아웃 렌더링 ---
+        // 이전 챕터의 (0,0) 원점 증명용 사각형들은 UI 영역과 겹치므로 제거했습니다.
+        // 상단 70 픽셀을 정보 표시를 위한 'UI 패널' 영역으로 할당하고 배경색을 다르게 칠합니다.
+        m_renderPipeline.PushRectangle(0.0f, 0.0f, Config::WindowWidth, Config::UIPanelHeight, Config::Theme::UIPanelBg);
 
-        // 실습 1. (0, 0) 원점 증명
-        // 사각형은 '좌측 상단'이 기준점이므로, (0,0)에 그리면 화면 왼쪽 맨 위에 딱 붙어서 그려집니다.
-        m_renderPipeline.PushRectangle(0.0f, 0.0f, Config::SampleRectWidth, Config::SampleRectHeight, BLUE);
+        // --- 2. UI 영역 (UI Panel) 정보 렌더링 ---
+        // 대시보드 타이틀 (상단 중앙 정렬)
+        const char* titleText = "System Status Dashboard";
+        int titleWidth = MeasureText(titleText, 20);
+        m_renderPipeline.PushText(Config::ScreenCenterX - (titleWidth / 2.0f), Config::UIMargin, titleText, 20, Config::Theme::TextTitle);
 
-        // 실습 2. 사각형을 정확히 화면 중앙에 배치하기 위한 오프셋(Offset) 계산
-        // 사각형을 중앙에 두려면 '화면 중앙 좌표 - (내 크기의 절반)'을 해야 합니다.
-        // [HFT 설계] 이 나눗셈과 뺄셈 연산 역시 constexpr을 이용해 컴파일 타임에 미리 끝내버립니다.
-        constexpr float centeredRectX = Config::ScreenCenterX - (Config::SampleRectWidth / 2.0f);
-        constexpr float centeredRectY = Config::ScreenCenterY - (Config::SampleRectHeight / 2.0f);
-        
-        m_renderPipeline.PushRectangle(centeredRectX, centeredRectY, Config::SampleRectWidth, Config::SampleRectHeight, DARKGRAY);
+        // 동적 디버깅 텍스트 (UI 패널 좌측 하단 여백 배치, Zero-Allocation)
+        const char* debugInfo = TextFormat("Pos: (%.1f, %.1f) | Timer: %.2f", m_player.x, m_player.y, m_timeAccumulator);
+        m_renderPipeline.PushText(Config::UIMargin, Config::UIPanelHeight - 25.0f, debugInfo, 20, Config::Theme::TextNormal);
 
-        // --- [Chapter 15 실습: 도형의 기준점과 좌표 계산] ---
-        // 1. 원의 기준점 증명 (동적으로 움직이는 플레이어)
-        // 원은 '중심점'이 기준이므로, 추가 연산 없이 바로 그리면 됩니다.
+        // 하트비트 인디케이터 (UI 패널 우측 정렬)
+        // 매직 넘버(RED, DARKGRAY) 대신 Config::Theme의 시맨틱 컬러를 사용합니다.
+        Color heartbeatColor = m_heartbeatState ? Config::Theme::HeartbeatActive : Config::Theme::HeartbeatNormal;
+        m_renderPipeline.PushCircle(Config::WindowWidth - 30.0f, Config::UIPanelHeight / 2.0f, 15.0f, heartbeatColor);
+
+
+        // --- 3. 플레이 영역 (Play Area) 오브젝트 렌더링 ---
+        // 플레이어 (Update()에서 테마 색상이 이미 결정되어 m_player.color에 반영됨)
         m_renderPipeline.PushCircle(m_player.x, m_player.y, m_player.radius, m_player.color);
 
-        // 2. UI 버튼 렌더링 (상태에 따라 색상 변경)
-        Color btnColor = m_isButtonActive ? LIME : GRAY;
+        // 상호작용 UI 버튼 (플레이 영역 내 하단 배치)
+        Color btnColor = m_isButtonActive ? Config::Theme::ButtonActive : Config::Theme::ButtonDefault;
         m_renderPipeline.PushRectangle(Config::UIButtonX, Config::UIButtonY, Config::UIButtonWidth, Config::UIButtonHeight, btnColor);
 
-        // 3. 교재 실습: "원을 마우스 위치에 그리면 마우스를 따라다니는 것처럼 보입니다"
-        // 마우스 커서 역할을 할 작은 빨간색 원 (클릭 상태일 때 투명도 변경)
-        Color cursorColor = cmd.leftClickDown ? RED : MAROON;
-        m_renderPipeline.PushCircle(cmd.mouseX, cmd.mouseY, 5.0f, cursorColor);
-
-        // --- [Chapter 16. 3초마다 깜빡이는 하트비트 인디케이터 (화면 우측 상단)] ---
-        Color heartbeatColor = m_heartbeatState ? RED : DARKGRAY;
-        m_renderPipeline.PushCircle(750.0f, 30.0f, 15.0f, heartbeatColor);
-
-        // --- [Chapter 17 실습: 텍스트 렌더링 및 디버깅 텍스트] ---
-
-        // 1. UI 버튼 위에 텍스트 중앙 정렬 렌더링 (MeasureText 활용)
+        // UI 버튼 텍스트 (버튼 크기에 맞춘 중앙 정렬)
         const char* btnText = "CLICK";
         int btnFontSize = 20;
         int textWidth = MeasureText(btnText, btnFontSize);
-        
-        // 텍스트를 버튼 중앙에 배치하기 위한 좌표 계산
         float textX = Config::UIButtonX + (Config::UIButtonWidth - textWidth) / 2.0f;
         float textY = Config::UIButtonY + (Config::UIButtonHeight - btnFontSize) / 2.0f;
-        m_renderPipeline.PushText(textX, textY, btnText,btnFontSize, BLACK);
+        m_renderPipeline.PushText(textX, textY, btnText, btnFontSize, BLACK);
 
-        // 2. 동적 디버깅 텍스트 (Zero-Allocation Formatting)
-        // [HFT 미세 팁] std::to_string이나 힙 할당을 유발하는 포매팅을 금지합니다.
-        // raylib의 TextFormat은 내부적으로 재사용 가능한 정적(static) char 배열을 사용하여
-        // 런타임 메모리 할당(new/malloc)을 완전히 차단합니다.
-        const char* debugInfo = TextFormat("Player Pos: (%.1f, %.1f) | Timer: %.2f", m_player.x, m_player.y, m_timeAccumulator);
-        m_renderPipeline.PushText(10.0f, Config::WindowHeight - 30.0f, debugInfo, 20, DARKGRAY);
 
-        // 3. 교재 실습용 타이틀 (상단 중앙 정렬)
-        const char* titleText = "Chapter 17: Text & Zero-Allocation";
-        int titleWidth = MeasureText(titleText, 20);
-        m_renderPipeline.PushText(Config::ScreenCenterX - (titleWidth / 2.0f), 10.0f, titleText, 20, MAROON);
+        // --- 4. 오버레이 렌더링 (마우스 커서) ---
+        // 마우스 커서는 화면 내 모든 요소보다 위에 있어야 하므로 가장 마지막에 렌더링 큐에 넣습니다.
+        Color cursorColor = cmd.leftClickDown ? Config::Theme::HeartbeatActive : Config::Theme::PlayerNormal;
+        m_renderPipeline.PushCircle(cmd.mouseX, cmd.mouseY, 5.0f, cursorColor);
 
-        /** 렌더링 파이프라인 일괄 처리(Flush) **/
-        m_window.BeginRender();    // ClearBackground 포함
-        m_renderPipeline.Flush();  // HFT 스타일 순차 메모리 렌더링
-        DrawFPS(10, 10);           // 로우레이턴시 진단용 FPS 카운터
+
+        /** --- 5. 렌더링 파이프라인 일괄 처리(Flush) --- **/
+        m_window.BeginRender();    // HFT 권장: Window 내부에 ClearBackground(Config::Theme::Background) 적용
+        m_renderPipeline.Flush();  // 메모리 풀에 순차적으로 담긴 명령을 한 번에 CPU 캐시 프렌들리하게 렌더링
+        
+        // FPS 카운터는 UI 패널의 좌측 상단 여백에 위치시킵니다.
+        DrawFPS(static_cast<int>(Config::UIMargin), static_cast<int>(Config::UIMargin));
         m_window.EndRender();
     }
 

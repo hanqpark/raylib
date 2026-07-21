@@ -11,14 +11,44 @@ namespace Config {
     constexpr int WindowHeight = 450;
     
     // Chapter 11. std::string_view는 문자열의 '시작 주소'와 '길이'만 가지는 아주 가벼운 참조 구조체
-    constexpr std::string_view WindowTitle = "HFT Low-Latency Base v1.5 - Time & Frames";
+    constexpr std::string_view WindowTitle = "HFT Low-Latency Base Ch 18. - Layout & Colors";
     constexpr int TargetFPS = 60;
-    constexpr Color BackgroundColor = RAYWHITE;
+
+    // --- [Chapter 18 추가] 레이아웃 분할 상수 ---
+    // 화면을 시각적으로 상단 UI 영역과 하단 Play 영역으로 나눕니다.
+    constexpr float UIPanelHeight = 70.0f;                      // 상단 UI 영역 높이
+    constexpr float PlayAreaY = UIPanelHeight;                  // 플레이 영역의 Y 시작점
+    constexpr float PlayAreaHeight = WindowHeight - UIPanelHeight;
+    constexpr float UIMargin = 15.0f;                           // 정보 우선순위를 위한 여백(Margin)
+
+    // --- [Chapter 18 추가] 시맨틱 컬러(Semantic Colors) 테마 ---
+    // HFT 시스템 대시보드처럼 상태와 목적에 따라 색상 이름을 부여하여 중앙 통제합니다.
+    namespace Theme {
+        // 배경 영역 분리 (다크 모드 기준)
+        constexpr Color Background = { 20, 20, 20, 255 };       // 전체 기본 배경
+        constexpr Color UIPanelBg  = { 35, 35, 35, 255 };       // 상단 UI 패널 배경
+
+        // 텍스트 계층 분리
+        constexpr Color TextTitle  = WHITE;                     // 강조 텍스트
+        constexpr Color TextNormal = LIGHTGRAY;                 // 일반 정보 텍스트
+
+        // 플레이어/오브젝트 상태 분리
+        constexpr Color PlayerNormal = { 0, 121, 241, 255 };    // 파란색 (기본/안전)
+        constexpr Color PlayerAction = { 0, 228, 48, 255 };     // 녹색 (액션/성공)
+
+        // 시스템 상태 (하트비트 등)
+        constexpr Color HeartbeatNormal = DARKGRAY;             // 대기
+        constexpr Color HeartbeatActive = RED;                  // 알림/경고
+
+        // UI 컴포넌트 상호작용
+        constexpr Color ButtonDefault = GRAY;
+        constexpr Color ButtonActive  = LIME;
+    }
+
 
     // Chapter 12. 플레이어(원형 도형) 컴파일 타임 설정
     constexpr float PlayerSpeed = 300.0f; // 초당 이동 픽셀 (float형 명시)
     constexpr float PlayerRadius = 25.0f;
-    constexpr Color PlayerColor = MAROON;
 
     // Chapter 13. Zero-Allocation 메모리 풀의 고정 크기 지정
     constexpr std::size_t MaxRenderCommands = 10000;

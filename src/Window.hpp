@@ -28,7 +28,7 @@ public:
 
     void BeginRender() const noexcept {
         BeginDrawing();
-        ClearBackground(Config::BackgroundColor);
+        ClearBackground(Config::Theme::Background);
     }
 
     void EndRender() const noexcept {
