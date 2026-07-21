@@ -107,7 +107,36 @@ private:
             }
         }
 
-        /* --- 4. 마우스 UI 버튼 로직 (Bounds Check) ---
+        // --- 4. [Chapter 29 추가] 공 - 패들 충돌 처리 ---
+        // [HFT Optimization]: 공이 아래로 이동 중(vy > 0)일 때만 충돌 검사를 수행합니다.
+        // 불필요한 연산을 조기 차단(Early Exit)하고 다중 프레임 연쇄 충돌 버그를 완벽히 예방합니다.
+        if (m_ball.vy > 0.0f) {
+            Vector2 ballCenter{ m_ball.x, m_ball.y };
+            Rectangle paddleRec{ m_player.x, m_player.y, m_player.width, m_player.height };
+
+            // raylib의 사각형-원 충돌 판정 (스택 메모리 상에서 직접 처리)
+            if (CheckCollisionCircleRec(ballCenter, m_ball.radius, paddleRec)) {
+                // 1. Penetration Resolution: 공을 패들 상단 표면으로 즉시 보정
+                m_ball.y = m_player.y - m_ball.radius;
+
+                // 2. Y축 속도 반전: 무조건 위쪽 방향(-)으로 지정
+                m_ball.vy = -std::abs(m_ball.vy);
+
+                // 3. 패들 타격 위치 기반 X축 속도 변주 (Linear Interpolation)
+                // 패들 중심점 기준 상대 위치 계산: [-1.0 (좌측 끝), 0.0 (중앙), 1.0 (우측 끝)]
+                float paddleCenterX = m_player.x + (m_player.width * 0.5f);
+                float hitOffset = (m_ball.x - paddleCenterX) / (m_player.width * 0.5f);
+
+                // 오프셋 범위 안전 보정 (Clamping: -1.0 ~ 1.0)
+                if (hitOffset < -1.0f) hitOffset = -1.0f;
+                if (hitOffset > 1.0f) hitOffset = 1.0f;
+
+                // 타격 지점에 비례하여 X축 속도를 변동시킴 (중앙: 직수직, 외곽: 빗겨 튕김)
+                m_ball.vx = hitOffset * Config::BallSpeedX * 1.5f;
+            }
+        }
+
+        /* --- 5. 마우스 UI 버튼 로직 (Bounds Check) ---
         // 교재 내용: "마우스 x 좌표가 버튼의 왼쪽과 오른쪽 사이에 있고, y 좌표가 위쪽과 아래쪽 사이에 있으면..."
         // 이 논리는 HFT의 Price Band(가격 상하한선) 체크와 완전히 동일한 분기 구조를 가집니다. */
         bool isMouseOverButton =
@@ -121,7 +150,7 @@ private:
             m_isButtonActive = !m_isButtonActive; // 버튼 상태 토글
         }
 
-        // --- 5. 논블로킹 누적 타이머 (Heartbeat / Timer) ---
+        // --- 6. 논블로킹 누적 타이머 (Heartbeat / Timer) ---
         m_timeAccumulator += dt; // 매 프레임의 시간을 누적
 
         // 누적된 시간이 우리가 설정한 간격(3초)을 넘었는지 확인
@@ -139,54 +168,58 @@ private:
 
     // m_renderPipeline의 상태를 변경하므로 const를 제거합니다.
     void Render(const InputCommand& cmd) noexcept {
-        // --- 1. 배경 및 UI 패널 레이아웃 렌더링 ---
-        // 이전 챕터의 (0,0) 원점 증명용 사각형들은 UI 영역과 겹치므로 제거했습니다.
-        // 상단 70 픽셀을 정보 표시를 위한 'UI 패널' 영역으로 할당하고 배경색을 다르게 칠합니다.
+// =================================================================
+        // LAYER 1: UI Dashboard & Telemetry Panel (상단 70px)
+        // =================================================================
+        // 1-1. 대시보드 배경
         m_renderPipeline.PushRectangle(0.0f, 0.0f, Config::WindowWidth, Config::UIPanelHeight, Config::Theme::UIPanelBg);
 
-        // --- 2. UI 영역 (UI Panel) 정보 렌더링 ---
-        // 대시보드 타이틀 (상단 중앙 정렬)
+        // 1-2. 대시보드 타이틀
         const char* titleText = "System Status Dashboard";
-        int titleWidth = MeasureText(titleText, 20);
-        m_renderPipeline.PushText(Config::ScreenCenterX - (titleWidth / 2.0f), Config::UIMargin, titleText, 20, Config::Theme::TextTitle);
+        int titleWidth = MeasureText(titleText, 18);
+        m_renderPipeline.PushText(Config::ScreenCenterX - (titleWidth / 2.0f), 8.0f, titleText, 18, Config::Theme::TextTitle);
 
-        // 동적 디버깅 텍스트 (UI 패널 좌측 하단 여백 배치, Zero-Allocation)
-        const char* debugInfo = TextFormat("Pos: (%.1f, %.1f) | Timer: %.2f", m_player.x, m_player.y, m_timeAccumulator);
-        m_renderPipeline.PushText(Config::UIMargin, Config::UIPanelHeight - 25.0f, debugInfo, 20, Config::Theme::TextNormal);
+        // 1-3. 텔레메트리 디버그 정보 (좌측)
+        const char* debugInfo = TextFormat("Paddle X: %.1f | Timer: %.2f", m_player.x, m_timeAccumulator);
+        m_renderPipeline.PushText(Config::UIMargin, Config::UIPanelHeight - 25.0f, debugInfo, 16, Config::Theme::TextNormal);
 
-        // 하트비트 인디케이터 (UI 패널 우측 정렬)
-        // 매직 넘버(RED, DARKGRAY) 대신 Config::Theme의 시맨틱 컬러를 사용합니다.
+        // 1-4. UI 상단 버튼 (우측 중간)
+        Color btnColor = m_isButtonActive ? Config::Theme::ButtonActive : Config::Theme::ButtonDefault;
+        m_renderPipeline.PushRectangle(Config::UIButtonX, Config::UIButtonY, Config::UIButtonWidth, Config::UIButtonHeight, btnColor);
+
+        const char* btnText = "CLICK";
+        int btnFontSize = 16;
+        int textWidth = MeasureText(btnText, btnFontSize);
+        float textX = Config::UIButtonX + (Config::UIButtonWidth - textWidth) / 2.0f;
+        float textY = Config::UIButtonY + (Config::UIButtonHeight - btnFontSize) / 2.0f;
+        m_renderPipeline.PushText(textX, textY, btnText, btnFontSize, BLACK);
+
+        // 1-5. Heartbeat 인디케이터 (우측 끝)
         Color heartbeatColor = m_heartbeatState ? Config::Theme::HeartbeatActive : Config::Theme::HeartbeatNormal;
-        m_renderPipeline.PushCircle(Config::WindowWidth - 30.0f, Config::UIPanelHeight / 2.0f, 15.0f, heartbeatColor);
+        m_renderPipeline.PushCircle(Config::WindowWidth - 30.0f, Config::UIPanelHeight / 2.0f, 12.0f, heartbeatColor);
 
 
-        // --- 3. 플레이 영역 (Play Area) 오브젝트 렌더링 ---
+        // =================================================================
+        // LAYER 2: Pure Game World (Play Area)
+        // =================================================================
         // [Chapter 28 변경] 사각형 패들 렌더링
         m_renderPipeline.PushRectangle(m_player.x, m_player.y, m_player.width, m_player.height, m_player.color);
 
         // [Chapter 25 추가] 공(Ball) 렌더링 (커스텀 RenderPipeline 버퍼에 푸시)
         m_renderPipeline.PushCircle(m_ball.x, m_ball.y, m_ball.radius, m_ball.color);
 
-        // UI 버튼 (플레이 영역 내 하단 배치)
-        Color btnColor = m_isButtonActive ? Config::Theme::ButtonActive : Config::Theme::ButtonDefault;
-        m_renderPipeline.PushRectangle(Config::UIButtonX, Config::UIButtonY, Config::UIButtonWidth, Config::UIButtonHeight, btnColor);
 
-        // UI 버튼 텍스트 (버튼 크기에 맞춘 중앙 정렬)
-        const char* btnText = "CLICK";
-        int btnFontSize = 20;
-        int textWidth = MeasureText(btnText, btnFontSize);
-        float textX = Config::UIButtonX + (Config::UIButtonWidth - textWidth) / 2.0f;
-        float textY = Config::UIButtonY + (Config::UIButtonHeight - btnFontSize) / 2.0f;
-        m_renderPipeline.PushText(textX, textY, btnText, btnFontSize, BLACK);
-
-
-        // --- 4. 오버레이 렌더링 (마우스 커서) ---
+        // =================================================================
+        // LAYER 3: Overlay (Mouse Cursor)
+        // =================================================================
         // 마우스 커서는 화면 내 모든 요소보다 위에 있어야 하므로 가장 마지막에 렌더링 큐에 넣습니다.
         Color cursorColor = cmd.leftClickDown ? Config::Theme::HeartbeatActive : Config::Theme::PlayerNormal;
         m_renderPipeline.PushCircle(cmd.mouseX, cmd.mouseY, 5.0f, cursorColor);
 
 
-        /** --- 5. 렌더링 파이프라인 일괄 처리(Flush) --- **/
+        // =================================================================
+        // Flush Render Commands
+        // =================================================================
         m_window.BeginRender();    // HFT 권장: Window 내부에 ClearBackground(Config::Theme::Background) 적용
         m_renderPipeline.Flush();  // 메모리 풀에 순차적으로 담긴 명령을 한 번에 CPU 캐시 프렌들리하게 렌더링
         

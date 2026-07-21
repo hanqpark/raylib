@@ -71,10 +71,11 @@ namespace Config {
     constexpr float ScreenCenterY = WindowHeight / 2.0f;
 
     // Chapter 15. 마우스 클릭 테스트용 UI 버튼 영역 설정 (매직 넘버 제거)
-    constexpr float UIButtonX = 350.0f;
-    constexpr float UIButtonY = 350.0f;
-    constexpr float UIButtonWidth = 100.0f;
-    constexpr float UIButtonHeight = 40.0f;
+    // --- UI 테스트 버튼 (상단 대시보드 내부로 이동) ---
+    inline constexpr float UIButtonWidth  = 80.0f;
+    inline constexpr float UIButtonHeight = 30.0f;
+    inline constexpr float UIButtonX      = 600.0f; // UI 패널 우측 영역
+    inline constexpr float UIButtonY      = (UIPanelHeight - UIButtonHeight) / 2.0f; // Y축 중앙 정렬 (20.0f)
 
     // Chapter 16.  교재 실습용 누적 타이머 주기 (3초)
     constexpr float HeartbeatInterval = 3.0f;
