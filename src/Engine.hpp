@@ -3,6 +3,7 @@
 #include "Config.hpp"
 #include "InputManager.hpp"
 #include "Player.hpp"
+#include "Ball.hpp"
 #include "RenderPipeline.hpp"
 
 class Engine final {
@@ -15,6 +16,15 @@ public:
             Config::PlayerSpeed, 
             Config::PlayerRadius, 
             Config::Theme::PlayerNormal
+        },
+        // [Chapter 25 적용] 공의 시작 위치를 Play Area 내부 중앙으로 맞추고 테마 색상 적용
+        m_ball{
+            Config::BallInitialX,
+            Config::BallInitialY,
+            Config::BallSpeedX,
+            Config::BallSpeedY,
+            Config::BallRadius,
+            Config::Theme::Ball
         } {}
 
     ~Engine() noexcept = default;
@@ -40,7 +50,7 @@ public:
 
 private:
     void Update(float dt, const InputCommand& cmd) noexcept {
-        // --- 1. 연속성 상태 갱신 (IsKeyDown 기반) ---
+        // --- 1. 플레이어 상태 갱신 (IsKeyDown 기반) ---
         m_player.x += cmd.dx * m_player.speed * dt;
         m_player.y += cmd.dy * m_player.speed * dt;
 
@@ -51,7 +61,12 @@ private:
         if (m_player.y < Config::PlayAreaY + m_player.radius) m_player.y = Config::PlayAreaY + m_player.radius;
         if (m_player.y > Config::WindowHeight - m_player.radius) m_player.y = Config::WindowHeight - m_player.radius;
 
-        /* --- 2. 단발성 상태 갱신 (IsKeyPressed 기반) ---
+        // --- 2. [Chapter 25 추가] 공 위치 갱신 ---
+        // 분기(Branch) 없는 캐시 친화적 시간 기반 2D 위치 연산
+        m_ball.x += m_ball.vx * dt;
+        m_ball.y += m_ball.vy * dt;
+
+        /* --- 3. 단발성 상태 갱신 (IsKeyPressed 기반) ---
         // 교재의 "한 번의 입력에 한 번만 반응" 원리 증명.
         // 스페이스바를 꾹 누르고 있어도 색상은 미친듯이 깜빡이지 않고 딱 한 번만 바뀝니다. 
         // [Chapter 18 적용] 하드코딩된 색상 대신 시맨틱 컬러 사용 */
@@ -64,7 +79,7 @@ private:
             }
         }
 
-        /* --- 3. 마우스 UI 버튼 로직 (Bounds Check) ---
+        /* --- 4. 마우스 UI 버튼 로직 (Bounds Check) ---
         // 교재 내용: "마우스 x 좌표가 버튼의 왼쪽과 오른쪽 사이에 있고, y 좌표가 위쪽과 아래쪽 사이에 있으면..."
         // 이 논리는 HFT의 Price Band(가격 상하한선) 체크와 완전히 동일한 분기 구조를 가집니다. */
         bool isMouseOverButton =
@@ -74,11 +89,11 @@ private:
             (cmd.mouseY <= Config::UIButtonY + Config::UIButtonHeight);
 
         // 마우스가 버튼 위에 '있고(AND)', '단발성 클릭'이 발생했다면 버튼 액션 수행
-        if (isMouseOverButton && cmd.leftClickPressed) {
+        if (isMouseOverButton & cmd.leftClickPressed) {
             m_isButtonActive = !m_isButtonActive; // 버튼 상태 토글
         }
 
-        // --- 4. [추가] 논블로킹 누적 타이머 (Heartbeat / Timer) ---
+        // --- 5. 논블로킹 누적 타이머 (Heartbeat / Timer) ---
         m_timeAccumulator += dt; // 매 프레임의 시간을 누적
 
         // 누적된 시간이 우리가 설정한 간격(3초)을 넘었는지 확인
@@ -118,10 +133,13 @@ private:
 
 
         // --- 3. 플레이 영역 (Play Area) 오브젝트 렌더링 ---
-        // 플레이어 (Update()에서 테마 색상이 이미 결정되어 m_player.color에 반영됨)
+        // 플레이어 : (Update()에서 테마 색상이 이미 결정되어 m_player.color에 반영됨)
         m_renderPipeline.PushCircle(m_player.x, m_player.y, m_player.radius, m_player.color);
 
-        // 상호작용 UI 버튼 (플레이 영역 내 하단 배치)
+        // [Chapter 25 추가] 공(Ball) 렌더링 (커스텀 RenderPipeline 버퍼에 푸시)
+        m_renderPipeline.PushCircle(m_ball.x, m_ball.y, m_ball.radius, m_ball.color);
+
+        // UI 버튼 (플레이 영역 내 하단 배치)
         Color btnColor = m_isButtonActive ? Config::Theme::ButtonActive : Config::Theme::ButtonDefault;
         m_renderPipeline.PushRectangle(Config::UIButtonX, Config::UIButtonY, Config::UIButtonWidth, Config::UIButtonHeight, btnColor);
 
@@ -155,7 +173,8 @@ private:
 
     // 상태 데이터를 담는 POD 구조체 인스턴스
     PlayerState m_player;
-    
+    BallState m_ball;
+
     // 화면 렌더링 큐를 관리하는 객체
     RenderPipeline m_renderPipeline;
 

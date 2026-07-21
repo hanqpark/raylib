@@ -2,7 +2,7 @@
 #pragma once
 
 #include <raylib.h>
-#include <string_view> // 2. std::string_view를 사용하기 위한 헤더
+#include <string_view>
 
 // 3. namespace: 단순히 이름 충돌을 막고 논리적으로 묶어주는 역할 (인스턴스화 불가)
 namespace Config {
@@ -11,7 +11,7 @@ namespace Config {
     constexpr int WindowHeight = 450;
     
     // Chapter 11. std::string_view는 문자열의 '시작 주소'와 '길이'만 가지는 아주 가벼운 참조 구조체
-    constexpr std::string_view WindowTitle = "HFT Low-Latency Base Ch 18. - Layout & Colors";
+    constexpr std::string_view WindowTitle = "HFT Low-Latency Base Ch 25. - Ball Entity";
     constexpr int TargetFPS = 60;
 
     // --- [Chapter 18 추가] 레이아웃 분할 상수 ---
@@ -43,12 +43,21 @@ namespace Config {
         // UI 컴포넌트 상호작용
         constexpr Color ButtonDefault = GRAY;
         constexpr Color ButtonActive  = LIME;
-    }
 
+        // --- [Chapter 25 추가] 공 시맨틱 컬러 (가독성 높은 골드 톤) ---
+        constexpr Color Ball           = { 240, 200, 80, 255 };
+    }
 
     // Chapter 12. 플레이어(원형 도형) 컴파일 타임 설정
     constexpr float PlayerSpeed = 300.0f; // 초당 이동 픽셀 (float형 명시)
     constexpr float PlayerRadius = 25.0f;
+
+    // --- [Chapter 25 추가] 공 물리 및 초기화 설정 상수 ---
+    constexpr float BallRadius   = 12.0f;
+    constexpr float BallInitialX = WindowWidth / 2.0f;
+    constexpr float BallInitialY = PlayAreaY + (PlayAreaHeight / 2.0f);
+    constexpr float BallSpeedX   = 180.0f; // x축 이동 속도 (픽셀/초)
+    constexpr float BallSpeedY   = 120.0f; // y축 이동 속도 (픽셀/초)
 
     // Chapter 13. Zero-Allocation 메모리 풀의 고정 크기 지정
     constexpr std::size_t MaxRenderCommands = 10000;
