@@ -10,12 +10,13 @@
 class Engine final {
 public:
     Engine() noexcept 
-        // [Chapter 18 적용] 플레이어의 시작 위치를 Play Area 내부 중앙으로 맞추고 테마 색상 적용
+// [Chapter 28 적용] 플레이어 패들을 화면 하단 중앙으로 세팅
         : m_player{
-            Config::ScreenCenterX,
-            Config::PlayAreaY + (Config::PlayAreaHeight / 2.0f),
+            Config::ScreenCenterX - (Config::PaddleWidth / 2.0f),
+            Config::PaddleY,
+            Config::PaddleWidth,
+            Config::PaddleHeight,
             Config::PlayerSpeed, 
-            Config::PlayerRadius, 
             Config::Theme::PlayerNormal
         },
         // [Chapter 25 적용] 공의 시작 위치를 Play Area 내부 중앙으로 맞추고 테마 색상 적용
@@ -51,16 +52,20 @@ public:
 
 private:
     void Update(float dt, const InputCommand& cmd) noexcept {
-        // --- 1. 플레이어 상태 갱신 (IsKeyDown 기반) ---
+        // --- 1. [Chapter 28 변경] 패들 1D(좌우) 위치 갱신 ---
+        // 상하 이동(cmd.dy)은 완전히 무시하고 좌우 이동(cmd.dx)만 반영합니다.
         m_player.x += cmd.dx * m_player.speed * dt;
-        m_player.y += cmd.dy * m_player.speed * dt;
+        // m_player.y += cmd.dy * m_player.speed * dt;
 
-        // [Chapter 18 적용] 레이아웃 분리에 따른 Bounds Check
-        // 플레이어가 UI 패널(PlayAreaY) 위로 올라가지 못하도록 상단 한계선을 조정합니다.
-        if (m_player.x < m_player.radius) m_player.x = m_player.radius;
-        if (m_player.x > Config::WindowWidth - m_player.radius) m_player.x = Config::WindowWidth - m_player.radius;
-        if (m_player.y < Config::PlayAreaY + m_player.radius) m_player.y = Config::PlayAreaY + m_player.radius;
-        if (m_player.y > Config::WindowHeight - m_player.radius) m_player.y = Config::WindowHeight - m_player.radius;
+        // [패들 경계 보정 (Clamping)]
+        // 패들 좌측 끝(x)이 화면 왼쪽(0.0f) 밖으로 나가지 않도록 보정
+        if (m_player.x < 0.0f) {
+            m_player.x = 0.0f;
+        }
+        // 패들 우측 끝(x + width)이 화면 오른쪽(WindowWidth)을 넘지 않도록 보정
+        else if (m_player.x + m_player.width > Config::WindowWidth) {
+            m_player.x = Config::WindowWidth - m_player.width;
+        }
 
         // --- 2. [Chapter 25 & 27] 공 위치 갱신 & 벽 충돌 반사 ---
         // 분기(Branch) 없는 캐시 친화적 시간 기반 2D 위치 연산
@@ -156,8 +161,8 @@ private:
 
 
         // --- 3. 플레이 영역 (Play Area) 오브젝트 렌더링 ---
-        // 플레이어 : (Update()에서 테마 색상이 이미 결정되어 m_player.color에 반영됨)
-        m_renderPipeline.PushCircle(m_player.x, m_player.y, m_player.radius, m_player.color);
+        // [Chapter 28 변경] 사각형 패들 렌더링
+        m_renderPipeline.PushRectangle(m_player.x, m_player.y, m_player.width, m_player.height, m_player.color);
 
         // [Chapter 25 추가] 공(Ball) 렌더링 (커스텀 RenderPipeline 버퍼에 푸시)
         m_renderPipeline.PushCircle(m_ball.x, m_ball.y, m_ball.radius, m_ball.color);

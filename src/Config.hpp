@@ -11,7 +11,7 @@ namespace Config {
     constexpr int WindowHeight = 450;
     
     // Chapter 11. std::string_view는 문자열의 '시작 주소'와 '길이'만 가지는 아주 가벼운 참조 구조체
-    constexpr std::string_view WindowTitle = "HFT Low-Latency Base Ch 25. - Ball Entity";
+    constexpr std::string_view WindowTitle = "HFT Low-Latency Base Ch 28. - Paddle Entity";
     constexpr int TargetFPS = 60;
 
     // --- [Chapter 18 추가] 레이아웃 분할 상수 ---
@@ -48,9 +48,11 @@ namespace Config {
         constexpr Color Ball           = { 240, 200, 80, 255 };
     }
 
-    // Chapter 12. 플레이어(원형 도형) 컴파일 타임 설정
-    constexpr float PlayerSpeed = 300.0f; // 초당 이동 픽셀 (float형 명시)
-    constexpr float PlayerRadius = 25.0f;
+    // --- [Chapter 28 추가] 플레이어 패들(Paddle) 규격 설정 ---
+    constexpr float PaddleWidth  = 100.0f; // 패들 너비
+    constexpr float PaddleHeight = 15.0f;  // 패들 높이
+    constexpr float PaddleY      = WindowHeight - 30.0f; // 화면 하단 근처 고정 Y 위치
+    constexpr float PlayerSpeed  = 400.0f; // 좌우 이동 속도 (픽셀/초)
 
     // --- [Chapter 25 추가] 공 물리 및 초기화 설정 상수 ---
     constexpr float BallRadius   = 12.0f;
@@ -67,10 +69,6 @@ namespace Config {
     // 즉, 런타임(게임 실행 중)에는 나눗셈 연산 오버헤드가 '제로'가 됩니다. */
     constexpr float ScreenCenterX = WindowWidth / 2.0f;
     constexpr float ScreenCenterY = WindowHeight / 2.0f;
-
-    // 테스트용 사각형 크기 상수화 (매직 넘버 제거)
-    constexpr float SampleRectWidth = 100.0f;
-    constexpr float SampleRectHeight = 50.0f;
 
     // Chapter 15. 마우스 클릭 테스트용 UI 버튼 영역 설정 (매직 넘버 제거)
     constexpr float UIButtonX = 350.0f;
