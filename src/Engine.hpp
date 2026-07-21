@@ -1,4 +1,5 @@
 #pragma once
+#include <cmath>
 #include "Window.hpp"
 #include "Config.hpp"
 #include "InputManager.hpp"
@@ -61,10 +62,32 @@ private:
         if (m_player.y < Config::PlayAreaY + m_player.radius) m_player.y = Config::PlayAreaY + m_player.radius;
         if (m_player.y > Config::WindowHeight - m_player.radius) m_player.y = Config::WindowHeight - m_player.radius;
 
-        // --- 2. [Chapter 25 추가] 공 위치 갱신 ---
+        // --- 2. [Chapter 25 & 27] 공 위치 갱신 & 벽 충돌 반사 ---
         // 분기(Branch) 없는 캐시 친화적 시간 기반 2D 위치 연산
         m_ball.x += m_ball.vx * dt;
         m_ball.y += m_ball.vy * dt;
+
+        // [좌측 벽 충돌]
+        if (m_ball.x - m_ball.radius <= 0.0f) {
+            m_ball.x = m_ball.radius;              // 1. 위치 보정 (Clamping)
+            m_ball.vx = std::abs(m_ball.vx);       // 2. 오른쪽 방향(+) 속도 강제 지정
+        }
+        // [우측 벽 충돌]
+        else if (m_ball.x + m_ball.radius >= Config::WindowWidth) {
+            m_ball.x = Config::WindowWidth - m_ball.radius; // 1. 위치 보정 (Clamping)
+            m_ball.vx = -std::abs(m_ball.vx);              // 2. 왼쪽 방향(-) 속도 강제 지정
+        }
+
+        // [상단 벽 충돌] (UI 패널 하단 boundary인 Config::PlayAreaY 기준)
+        if (m_ball.y - m_ball.radius <= Config::PlayAreaY) {
+            m_ball.y = Config::PlayAreaY + m_ball.radius;   // 1. 위치 보정 (Clamping)
+            m_ball.vy = std::abs(m_ball.vy);               // 2. 아래쪽 방향(+) 속도 강제 지정
+        }
+        // [하단 벽 충돌]
+        else if (m_ball.y + m_ball.radius >= Config::WindowHeight) {
+            m_ball.y = Config::WindowHeight - m_ball.radius; // 1. 위치 보정 (Clamping)
+            m_ball.vy = -std::abs(m_ball.vy);               // 2. 위쪽 방향(-) 속도 강제 지정
+        }
 
         /* --- 3. 단발성 상태 갱신 (IsKeyPressed 기반) ---
         // 교재의 "한 번의 입력에 한 번만 반응" 원리 증명.
