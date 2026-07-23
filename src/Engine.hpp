@@ -14,7 +14,8 @@
 enum class GameState : uint8_t {
     Ready = 0,  // [추가] 시작 대기 상태 (공이 패들을 따라다님)
     Playing,    // 게임 진행 상태
-    GameOver    // 실패 상태
+    GameOver,    // 실패 상태
+    GameClear // [Chapter 34 추가] 승리 상태
 };
 
 class Engine final {
@@ -50,6 +51,9 @@ private:
     void ResetGame() noexcept {
         m_gameState = GameState::Ready;
         m_score = 0;
+
+        // [Chapter 34 추가] 남은 벽돌 카운터를 전체 개수로 초기화 (O(1) 판정용)
+        m_activeBrickCount = Config::TotalBricks;
 
         // [Chapter 28 적용] 플레이어 패들을 화면 하단 중앙으로 세팅
         // C++17 Aggregate Initialization을 통한 덮어쓰기
@@ -94,7 +98,7 @@ private:
     void Update(float dt, const InputCommand& cmd) noexcept {
         // --- [HFT FSM] 상태에 따른 조기 차단 (Early Exit) ---
         // 게임 오버 상태라면 물리 연산을 전부 건너뛰어 CPU 사이클 절약
-        if (m_gameState == GameState::GameOver) {
+        if (m_gameState == GameState::GameOver || m_gameState == GameState::GameClear) {
             if (cmd.restartAction) {
                 ResetGame(); // 엔터 키 입력 시 즉각적인 무할당 상태 복구
             }
@@ -245,6 +249,12 @@ private:
                 // 3. 물리 반사: Y축 속도 반전
                 m_ball.vy = -m_ball.vy;
 
+                // 4. [Chapter 34 추가] O(1) 증감 연산으로 남은 벽돌 수 차감 및 승리 조건 검사
+                m_activeBrickCount--;
+                if (m_activeBrickCount == 0) {
+                    m_gameState = GameState::GameClear;
+                }
+
                 // [중요 HFT 분기 팁] 충돌 직후 즉시 루프 탈출(break)
                 // 한 프레임(Tick) 안에 공이 2개 이상의 벽돌과 동시에 충돌 판정이 일어나
                 // 속도가 두 번 뒤집혀 벽돌 안에서 공이 갇히는 기이한 다중 충돌 버그를 예방합니다.
@@ -351,6 +361,17 @@ private:
             m_renderPipeline.PushText(Config::ScreenCenterX - (goWidth / 2.0f), Config::ScreenCenterY - 30.0f, goText, 40, RED);
             m_renderPipeline.PushText(Config::ScreenCenterX - (rsWidth / 2.0f), Config::ScreenCenterY + 20.0f, rsText, 20, RAYWHITE);
         }
+        else if (m_gameState == GameState::GameClear) {
+            m_renderPipeline.PushRectangle(0.0f, Config::PlayAreaY, Config::WindowWidth, Config::WindowHeight - Config::PlayAreaY, Fade(BLACK, 0.7f));
+
+            const char* gcText = "VICTORY!";
+            const char* rsText = "Press ENTER to Restart";
+            int gcWidth = MeasureText(gcText, 40);
+            int rsWidth = MeasureText(rsText, 20);
+
+            m_renderPipeline.PushText(Config::ScreenCenterX - (gcWidth / 2.0f), Config::ScreenCenterY - 30.0f, gcText, 40, GREEN);
+            m_renderPipeline.PushText(Config::ScreenCenterX - (rsWidth / 2.0f), Config::ScreenCenterY + 20.0f, rsText, 20, RAYWHITE);
+        }
 
         // =================================================================
         // Flush Render Commands
@@ -377,6 +398,7 @@ private:
     // Chapter 30. 상태 및 점수 변수
     GameState m_gameState;
     uint32_t m_score;
+    uint32_t m_activeBrickCount; // [Chapter 34 추가] 남은 벽돌 수
 
     // Chapter 15. UI 버튼의 현재 활성화 상태
     bool m_isButtonActive{false};
