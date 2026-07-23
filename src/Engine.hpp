@@ -12,8 +12,9 @@
 
 // [HFT Optimization]: 1바이트 크기의 엄격한 타입(Enum Class)으로 FSM(유한 상태 기계) 구성
 enum class GameState : uint8_t {
-    Playing = 0,
-    GameOver
+    Ready = 0,  // [추가] 시작 대기 상태 (공이 패들을 따라다님)
+    Playing,    // 게임 진행 상태
+    GameOver    // 실패 상태
 };
 
 class Engine final {
@@ -47,7 +48,7 @@ public:
 private:
     // [Chapter 30 추가] 메모리 재할당 없는 결정론적 상태 리셋 (Deterministic Reset)
     void ResetGame() noexcept {
-        m_gameState = GameState::Playing;
+        m_gameState = GameState::Ready;
         m_score = 0;
 
         // [Chapter 28 적용] 플레이어 패들을 화면 하단 중앙으로 세팅
@@ -120,29 +121,45 @@ private:
         }
 
         // --- 2. [Chapter 25 & 27] 공 위치 갱신 & 벽 충돌 반사 ---
-        // 분기(Branch) 없는 캐시 친화적 시간 기반 2D 위치 연산
-        m_ball.x += m_ball.vx * dt;
-        m_ball.y += m_ball.vy * dt;
+        if (m_gameState == GameState::Ready) {
+            // 게임 시작 전에는 공이 패들을 따라다니도록 위치를 고정합니다.
+            m_ball.x = m_player.x + (m_player.width * 0.5f);
+            m_ball.y = m_player.y - m_ball.radius - 1.0f; // 패들 상단 바로 위에 위치
 
-        // [좌측 벽 충돌]
-        if (m_ball.x - m_ball.radius <= 0.0f) {
-            m_ball.x = m_ball.radius;              // 1. 위치 보정 (Clamping)
-            m_ball.vx = std::abs(m_ball.vx);       // 2. 오른쪽 방향(+) 속도 강제 지정
-        }
-        // [우측 벽 충돌]
-        else if (m_ball.x + m_ball.radius >= Config::WindowWidth) {
-            m_ball.x = Config::WindowWidth - m_ball.radius; // 1. 위치 보정 (Clamping)
-            m_ball.vx = -std::abs(m_ball.vx);              // 2. 왼쪽 방향(-) 속도 강제 지정
-        }
+            if (cmd.fireAction) {
+                m_gameState = GameState::Playing; // 스페이스바 입력 시 게임 시작
 
-        // [상단 벽 충돌] (UI 패널 하단 boundary인 Config::PlayAreaY 기준)
-        if (m_ball.y - m_ball.radius <= Config::PlayAreaY) {
-            m_ball.y = Config::PlayAreaY + m_ball.radius;   // 1. 위치 보정 (Clamping)
-            m_ball.vy = std::abs(m_ball.vy);               // 2. 아래쪽 방향(+) 속도 강제 지정
-        }
-        // [Chapter 30 변경] 기존의 하단 반사 로직을 '게임 오버 판정'으로 교체
-        else if (m_ball.y + m_ball.radius > Config::WindowHeight) {
-            m_gameState = GameState::GameOver; // 1. 게임 오버 상태 전환
+                m_ball.vx = Config::BallSpeedX; // 초기 속도 설정
+                m_ball.vy = Config::BallSpeedY; // 초기 속도 설정
+            }
+        } else if (m_gameState == GameState::Playing) {
+            // 게임 진행 중에는 공이 독립적으로 움직입니다.
+
+            // 분기(Branch) 없는 캐시 친화적 시간 기반 2D 위치 연산
+            m_ball.x += m_ball.vx * dt;
+            m_ball.y += m_ball.vy * dt;
+
+            // [좌측 벽 충돌]
+            if (m_ball.x - m_ball.radius <= 0.0f) {
+                m_ball.x = m_ball.radius;              // 1. 위치 보정 (Clamping)
+                m_ball.vx = std::abs(m_ball.vx);       // 2. 오른쪽 방향(+) 속도 강제 지정
+            }
+            // [우측 벽 충돌]
+            else if (m_ball.x + m_ball.radius >= Config::WindowWidth) {
+                m_ball.x = Config::WindowWidth - m_ball.radius; // 1. 위치 보정 (Clamping)
+                m_ball.vx = -std::abs(m_ball.vx);              // 2. 왼쪽 방향(-) 속도 강제 지정
+            }
+
+            // [상단 벽 충돌] (UI 패널 하단 boundary인 Config::PlayAreaY 기준)
+            if (m_ball.y - m_ball.radius <= Config::PlayAreaY) {
+                m_ball.y = Config::PlayAreaY + m_ball.radius;   // 1. 위치 보정 (Clamping)
+                m_ball.vy = std::abs(m_ball.vy);               // 2. 아래쪽 방향(+) 속도 강제 지정
+            }
+            // [Chapter 30 변경] 기존의 하단 반사 로직을 '게임 오버 판정'으로 교체
+            else if (m_ball.y + m_ball.radius > Config::WindowHeight) {
+                m_gameState = GameState::GameOver; // 1. 게임 오버 상태 전환
+            }
+            
         }
 
         /* --- 3. 단발성 상태 갱신 (IsKeyPressed 기반) ---
@@ -205,7 +222,37 @@ private:
             }
         }
 
-        /* --- 5. 마우스 UI 버튼 로직 (Bounds Check) ---
+        // --- 5. [Chapter 33 추가] 공 - 벽돌 충돌 처리 ---
+        // 1차원 배열(m_bricks)을 순회하며 충돌을 검사합니다.
+        // HFT 최적화: 메모리가 1차원으로 완벽히 연속되어 있어 하드웨어 프리페처(Prefetcher)가
+        // 데이터를 CPU L1 캐시에 매우 빠르게 올려두므로 순회 비용이 극단적으로 낮습니다.
+        for (auto& brick : m_bricks) {
+            // [Early Exit] 이미 파괴된 벽돌은 물리 연산을 즉시 건너뜁니다 (CPU 사이클 절약).
+            if (!brick.isAlive) {
+                continue;
+            }
+
+            Rectangle brickRec{ brick.x, brick.y, brick.width, brick.height };
+            Vector2 ballCenter{ m_ball.x, m_ball.y };
+
+            if (CheckCollisionCircleRec(ballCenter, m_ball.radius, brickRec)) {
+                // 1. 상태 갱신: 벽돌 파괴 처리 (isAlive 플래그 변경)
+                brick.isAlive = false;
+
+                // 2. 점수 증가
+                m_score += 50;
+
+                // 3. 물리 반사: Y축 속도 반전
+                m_ball.vy = -m_ball.vy;
+
+                // [중요 HFT 분기 팁] 충돌 직후 즉시 루프 탈출(break)
+                // 한 프레임(Tick) 안에 공이 2개 이상의 벽돌과 동시에 충돌 판정이 일어나
+                // 속도가 두 번 뒤집혀 벽돌 안에서 공이 갇히는 기이한 다중 충돌 버그를 예방합니다.
+                break;
+            }
+        }
+
+        /* --- 6. 마우스 UI 버튼 로직 (Bounds Check) ---
         // 교재 내용: "마우스 x 좌표가 버튼의 왼쪽과 오른쪽 사이에 있고, y 좌표가 위쪽과 아래쪽 사이에 있으면..."
         // 이 논리는 HFT의 Price Band(가격 상하한선) 체크와 완전히 동일한 분기 구조를 가집니다. */
         bool isMouseOverButton =
@@ -219,7 +266,7 @@ private:
             m_isButtonActive = !m_isButtonActive; // 버튼 상태 토글
         }
 
-        // --- 6. 논블로킹 누적 타이머 (Heartbeat / Timer) ---
+        // --- 7. 논블로킹 누적 타이머 (Heartbeat / Timer) ---
         m_timeAccumulator += dt; // 매 프레임의 시간을 누적
 
         // 누적된 시간이 우리가 설정한 간격(3초)을 넘었는지 확인
