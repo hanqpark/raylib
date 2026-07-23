@@ -14,13 +14,12 @@
 enum class GameState : uint8_t {
     Ready = 0,  // [추가] 시작 대기 상태 (공이 패들을 따라다님)
     Playing,    // 게임 진행 상태
-    GameOver,    // 실패 상태
-    GameClear // [Chapter 34 추가] 승리 상태
+    GameOver,   // 실패 상태
+    GameClear   // [Chapter 34 추가] 승리 상태
 };
 
 class Engine final {
 public:
-
     Engine() noexcept {
         ResetGame();
     }
@@ -34,7 +33,7 @@ public:
             // HFT의 Tick 간격 계산과 동일한 물리 시간 델타값 확보
             float dt = GetFrameTime(); 
             
-            // [교재의 핵심 3단계 파이프라인]
+            // [교재의 핵심 3단계 파이프라인 Hot Path]
             // 1. 입력 (Input Polling)
             InputCommand cmd = InputManager::Poll();
             
@@ -47,6 +46,10 @@ public:
     }
 
 private:
+    // =========================================================================
+    // 1. Hot Path: 메인 오케스트레이션 함수 (High-Level Pipeline)
+    // =========================================================================
+
     // [Chapter 30 추가] 메모리 재할당 없는 결정론적 상태 리셋 (Deterministic Reset)
     void ResetGame() noexcept {
         m_gameState = GameState::Ready;
@@ -65,6 +68,7 @@ private:
             Config::PlayerSpeed, 
             Config::Theme::PlayerNormal
         };
+
         // [Chapter 25 적용] 공의 시작 위치를 Play Area 내부 중앙으로 맞추고 테마 색상 적용
         m_ball = BallState{
             Config::BallInitialX,
@@ -95,9 +99,11 @@ private:
             }
         }
     }
+
+    // [Update Hot Path]: 프레임별 상태 및 물리 연산 통제
     void Update(float dt, const InputCommand& cmd) noexcept {
         // --- [HFT FSM] 상태에 따른 조기 차단 (Early Exit) ---
-        // 게임 오버 상태라면 물리 연산을 전부 건너뛰어 CPU 사이클 절약
+        // 게임 오버 또는 게임 클리어 상태라면 물리 연산을 전부 건너뛰어 CPU 사이클 절약
         if (m_gameState == GameState::GameOver || m_gameState == GameState::GameClear) {
             if (cmd.restartAction) {
                 ResetGame(); // 엔터 키 입력 시 즉각적인 무할당 상태 복구
@@ -106,13 +112,46 @@ private:
         }
 
         // ==========================================
-        // 아래 로직은 GameState::Playing 상태일 때만 실행됩니다.
+        // 세부 서브시스템 갱신 (Inlined execution)
         // ==========================================
+        UpdatePaddle(dt, cmd);
+        UpdateBall(dt, cmd);
 
-        // --- 1. [Chapter 28 변경] 패들 1D(좌우) 위치 갱신 ---
-        // 상하 이동(cmd.dy)은 완전히 무시하고 좌우 이동(cmd.dx)만 반영합니다.
+        // [HFT Optimization] Playing 상태일 때만 충돌 연산 수행
+        if (m_gameState == GameState::Playing) {
+            CheckPaddleCollision();
+            CheckBrickCollisions();
+        }
+
+        UpdateUIAndTimers(dt, cmd);
+    }
+
+    // [Render Hot Path]: 레이어별 순차적 렌더링 명령 푸시
+    // m_renderPipeline의 상태를 변경하므로 const를 제거합니다.
+    void Render(const InputCommand& cmd) noexcept {
+        RenderUIDashboard(); // LAYER 1: UI Dashboard & Telemetry Panel (상단 70px)
+        RenderGameWorld();   // LAYER 2: Pure Game World (Play Area)
+        RenderOverlay(cmd);  // LAYER 3: Overlay (Mouse Cursor & Game State Overlay)
+
+        // =================================================================
+        // Flush Render Commands
+        // =================================================================
+        m_window.BeginRender();    // HFT 권장: Window 내부에 ClearBackground(Config::Theme::Background) 적용
+        m_renderPipeline.Flush();  // 메모리 풀에 순차적으로 담긴 명령을 한 번에 CPU 캐시 프렌들리하게 렌더링
+        
+        // FPS 카운터는 UI 패널의 좌측 상단 여백에 위치시킵니다.
+        DrawFPS(static_cast<int>(Config::UIMargin), static_cast<int>(Config::UIMargin));
+        m_window.EndRender();
+    }
+
+    // =========================================================================
+    // 2. Update Sub-Pipelines (Zero-Cost Inlined Private Helpers)
+    // =========================================================================
+
+    // --- 1. [Chapter 28 변경] 패들 1D(좌우) 위치 갱신 ---
+    // 상하 이동(cmd.dy)은 완전히 무시하고 좌우 이동(cmd.dx)만 반영합니다.
+    inline void UpdatePaddle(float dt, const InputCommand& cmd) noexcept {
         m_player.x += cmd.dx * m_player.speed * dt;
-        // m_player.y += cmd.dy * m_player.speed * dt;
 
         // [패들 경계 보정 (Clamping)]
         // 패들 좌측 끝(x)이 화면 왼쪽(0.0f) 밖으로 나가지 않도록 보정
@@ -123,8 +162,10 @@ private:
         else if (m_player.x + m_player.width > Config::WindowWidth) {
             m_player.x = Config::WindowWidth - m_player.width;
         }
+    }
 
-        // --- 2. [Chapter 25 & 27] 공 위치 갱신 & 벽 충돌 반사 ---
+    // --- 2. [Chapter 25 & 27] 공 위치 갱신 & 벽 충돌 반사 ---
+    inline void UpdateBall(float dt, const InputCommand& cmd) noexcept {
         if (m_gameState == GameState::Ready) {
             // 게임 시작 전에는 공이 패들을 따라다니도록 위치를 고정합니다.
             m_ball.x = m_player.x + (m_player.width * 0.5f);
@@ -163,73 +204,63 @@ private:
             else if (m_ball.y + m_ball.radius > Config::WindowHeight) {
                 m_gameState = GameState::GameOver; // 1. 게임 오버 상태 전환
             }
-            
         }
+    }
 
-        /* --- 3. 단발성 상태 갱신 (IsKeyPressed 기반) ---
-        // 교재의 "한 번의 입력에 한 번만 반응" 원리 증명.
-        // 스페이스바를 꾹 누르고 있어도 색상은 미친듯이 깜빡이지 않고 딱 한 번만 바뀝니다. 
-        // [Chapter 18 적용] 하드코딩된 색상 대신 시맨틱 컬러 사용 */
-        if (cmd.fireAction) {
-            // 현재 색상이 원래 색상이면 파란색으로, 파란색이면 다시 원래 색상으로 변경
-            if (m_player.color.r == Config::Theme::PlayerNormal.r) {
-                m_player.color = Config::Theme::PlayerAction;
-            } else {
-                m_player.color = Config::Theme::PlayerNormal;
-            }
+    // --- 4. [Chapter 29 추가] 공 - 패들 충돌 처리 ---
+    // [HFT Optimization]: 공이 아래로 이동 중(vy > 0)일 때만 충돌 검사를 수행합니다.
+    // 불필요한 연산을 조기 차단(Early Exit)하고 다중 프레임 연쇄 충돌 버그를 완벽히 예방합니다.
+    inline void CheckPaddleCollision() noexcept {
+        if (m_ball.vy <= 0.0f) return;
+
+        Vector2 ballCenter{ m_ball.x, m_ball.y };
+        Rectangle paddleRec{ m_player.x, m_player.y, m_player.width, m_player.height };
+
+        // raylib의 사각형-원 충돌 판정 (스택 메모리 상에서 직접 처리)
+        if (CheckCollisionCircleRec(ballCenter, m_ball.radius, paddleRec)) {
+            // 1. Penetration Resolution: 공을 패들 상단 표면으로 즉시 보정
+            m_ball.y = m_player.y - m_ball.radius;
+
+            // 2. Y축 속도 반전: 무조건 위쪽 방향(-)으로 지정
+            m_ball.vy = -std::abs(m_ball.vy);
+
+            // 3. 패들 타격 위치 기반 X축 속도 변주 (Linear Interpolation)
+            // 패들 중심점 기준 상대 위치 계산: [-1.0 (좌측 끝), 0.0 (중앙), 1.0 (우측 끝)]
+            float paddleCenterX = m_player.x + (m_player.width * 0.5f);
+            float hitOffset = (m_ball.x - paddleCenterX) / (m_player.width * 0.5f);
+
+            // 오프셋 범위 안전 보정 (Clamping: -1.0 ~ 1.0)
+            if (hitOffset < -1.0f) hitOffset = -1.0f;
+            if (hitOffset > 1.0f) hitOffset = 1.0f;
+
+            // ==========================================================
+            // 벡터 정규화를 통한 총 속력(Magnitude) 보존
+            // ==========================================================
+            // 충돌 직전의 실제 속력을 피타고라스 정리로 계산하여 백업
+            float currentSpeed = std::sqrt(m_ball.vx * m_ball.vx + m_ball.vy * m_ball.vy);
+
+            // 반사될 방향 벡터 설정 (x는 타격 위치 비례, y는 무조건 위쪽)
+            float dirX = hitOffset * 1.5f;
+            float dirY = -1.0f;
+
+            // 방향 벡터의 길이(Length) 계산
+            float length = std::sqrt(dirX * dirX + dirY * dirY);
+
+            // 길이를 1로 만든 단위 벡터(Unit Vector)에 기존 속력을 곱해 x, y축으로 재분배
+            m_ball.vx = (dirX / length) * currentSpeed;
+            m_ball.vy = (dirY / length) * currentSpeed;
+            // ==========================================================
+
+            // [Chapter 30 추가] 패들에 공을 튕겨낼 때마다 점수 증가
+            m_score += 10;
         }
+    }
 
-        // --- 4. [Chapter 29 추가] 공 - 패들 충돌 처리 ---
-        // [HFT Optimization]: 공이 아래로 이동 중(vy > 0)일 때만 충돌 검사를 수행합니다.
-        // 불필요한 연산을 조기 차단(Early Exit)하고 다중 프레임 연쇄 충돌 버그를 완벽히 예방합니다.
-        if (m_ball.vy > 0.0f) {
-            Vector2 ballCenter{ m_ball.x, m_ball.y };
-            Rectangle paddleRec{ m_player.x, m_player.y, m_player.width, m_player.height };
-
-            // raylib의 사각형-원 충돌 판정 (스택 메모리 상에서 직접 처리)
-            if (CheckCollisionCircleRec(ballCenter, m_ball.radius, paddleRec)) {
-                // 1. Penetration Resolution: 공을 패들 상단 표면으로 즉시 보정
-                m_ball.y = m_player.y - m_ball.radius;
-
-                // 2. Y축 속도 반전: 무조건 위쪽 방향(-)으로 지정
-                m_ball.vy = -std::abs(m_ball.vy);
-
-                // 3. 패들 타격 위치 기반 X축 속도 변주 (Linear Interpolation)
-                // 패들 중심점 기준 상대 위치 계산: [-1.0 (좌측 끝), 0.0 (중앙), 1.0 (우측 끝)]
-                float paddleCenterX = m_player.x + (m_player.width * 0.5f);
-                float hitOffset = (m_ball.x - paddleCenterX) / (m_player.width * 0.5f);
-
-                // 오프셋 범위 안전 보정 (Clamping: -1.0 ~ 1.0)
-                if (hitOffset < -1.0f) hitOffset = -1.0f;
-                if (hitOffset > 1.0f) hitOffset = 1.0f;
-
-                // ==========================================================
-                // 3. [핵심 수정] 벡터 정규화를 통한 총 속력(Magnitude) 보존
-                // ==========================================================
-                // 충돌 직전의 실제 속력을 피타고라스 정리로 계산하여 백업
-                float currentSpeed = std::sqrt(m_ball.vx * m_ball.vx + m_ball.vy * m_ball.vy);
-
-                // 반사될 방향 벡터 설정 (x는 타격 위치 비례, y는 무조건 위쪽)
-                float dirX = hitOffset * 1.5f;
-                float dirY = -1.0f;
-
-                // 방향 벡터의 길이(Length) 계산
-                float length = std::sqrt(dirX * dirX + dirY * dirY);
-
-                // 길이를 1로 만든 단위 벡터(Unit Vector)에 기존 속력을 곱해 x, y축으로 재분배
-                m_ball.vx = (dirX / length) * currentSpeed;
-                m_ball.vy = (dirY / length) * currentSpeed;
-                // ==========================================================
-
-                // [Chapter 30 추가] 패들에 공을 튕겨낼 때마다 점수 증가
-                m_score += 10;
-            }
-        }
-
-        // --- 5. [Chapter 33 추가] 공 - 벽돌 충돌 처리 ---
-        // 1차원 배열(m_bricks)을 순회하며 충돌을 검사합니다.
-        // HFT 최적화: 메모리가 1차원으로 완벽히 연속되어 있어 하드웨어 프리페처(Prefetcher)가
-        // 데이터를 CPU L1 캐시에 매우 빠르게 올려두므로 순회 비용이 극단적으로 낮습니다.
+    // --- 5. [Chapter 33 추가] 공 - 벽돌 충돌 처리 ---
+    // 1차원 배열(m_bricks)을 순회하며 충돌을 검사합니다.
+    // HFT 최적화: 메모리가 1차원으로 완벽히 연속되어 있어 하드웨어 프리페처(Prefetcher)가
+    // 데이터를 CPU L1 캐시에 매우 빠르게 올려두므로 순회 비용이 극단적으로 낮습니다.
+    inline void CheckBrickCollisions() noexcept {
         for (auto& brick : m_bricks) {
             // [Early Exit] 이미 파괴된 벽돌은 물리 연산을 즉시 건너뜁니다 (CPU 사이클 절약).
             if (!brick.isAlive) {
@@ -261,10 +292,13 @@ private:
                 break;
             }
         }
+    }
 
-        /* --- 6. 마우스 UI 버튼 로직 (Bounds Check) ---
-        // 교재 내용: "마우스 x 좌표가 버튼의 왼쪽과 오른쪽 사이에 있고, y 좌표가 위쪽과 아래쪽 사이에 있으면..."
-        // 이 논리는 HFT의 Price Band(가격 상하한선) 체크와 완전히 동일한 분기 구조를 가집니다. */
+    // --- 6. 마우스 UI 버튼 로직 & 7. 논블로킹 누적 타이머 ---
+    inline void UpdateUIAndTimers(float dt, const InputCommand& cmd) noexcept {
+        /* 마우스 UI 버튼 로직 (Bounds Check)
+           교재 내용: "마우스 x 좌표가 버튼의 왼쪽과 오른쪽 사이에 있고, y 좌표가 위쪽과 아래쪽 사이에 있으면..."
+           이 논리는 HFT의 Price Band(가격 상하한선) 체크와 동일한 분기 구조를 가집니다. */
         bool isMouseOverButton =
             (cmd.mouseX >= Config::UIButtonX) & 
             (cmd.mouseX <= Config::UIButtonX + Config::UIButtonWidth) &
@@ -276,15 +310,12 @@ private:
             m_isButtonActive = !m_isButtonActive; // 버튼 상태 토글
         }
 
-        // --- 7. 논블로킹 누적 타이머 (Heartbeat / Timer) ---
+        // 논블로킹 누적 타이머 (Heartbeat / Timer)
         m_timeAccumulator += dt; // 매 프레임의 시간을 누적
 
         // 누적된 시간이 우리가 설정한 간격(3초)을 넘었는지 확인
         if (m_timeAccumulator >= Config::HeartbeatInterval) {
-            // [HFT 미세 팁] m_timeAccumulator = 0.0f; 로 초기화하지 않습니다!
-            // 프레임 시간이 정확히 3.0이 아니라 3.016초일 수 있습니다.
-            // 0으로 덮어쓰면 0.016초의 오차가 매번 유실(Drift)되어 나중에는 스텝이 완전히 꼬입니다.
-            // 초과한 기준치(3.0)만 빼주어 잔여 시간을 다음 주기로 이월시켜야 정확도가 유지됩니다.
+            // [HFT 미세 팁] m_timeAccumulator = 0.0f; 로 초기화하지 않고 초과한 기준치(3.0)만 빼서 잔여 시간 이월 (Drift 예방)
             m_timeAccumulator -= Config::HeartbeatInterval;
 
             // 3초마다 수행할 로직 (UI 상태 토글)
@@ -292,11 +323,12 @@ private:
         }
     }
 
-    // m_renderPipeline의 상태를 변경하므로 const를 제거합니다.
-    void Render(const InputCommand& cmd) noexcept {
-        // =================================================================
-        // LAYER 1: UI Dashboard & Telemetry Panel (상단 70px)
-        // =================================================================
+    // =========================================================================
+    // 3. Render Sub-Pipelines (Zero-Cost Inlined Private Helpers)
+    // =========================================================================
+
+    // LAYER 1: UI Dashboard & Telemetry Panel (상단 70px)
+    inline void RenderUIDashboard() noexcept {
         // 1-1. 대시보드 배경
         m_renderPipeline.PushRectangle(0.0f, 0.0f, Config::WindowWidth, Config::UIPanelHeight, Config::Theme::UIPanelBg);
 
@@ -322,11 +354,10 @@ private:
         // 1-5. Heartbeat 인디케이터 (우측 끝)
         Color heartbeatColor = m_heartbeatState ? Config::Theme::HeartbeatActive : Config::Theme::HeartbeatNormal;
         m_renderPipeline.PushCircle(Config::WindowWidth - 30.0f, Config::UIPanelHeight / 2.0f, 12.0f, heartbeatColor);
+    }
 
-
-        // =================================================================
-        // LAYER 2: Pure Game World (Play Area)
-        // =================================================================
+    // LAYER 2: Pure Game World (Play Area)
+    inline void RenderGameWorld() noexcept {
         // [Chapter 28 변경] 사각형 패들 렌더링
         m_renderPipeline.PushRectangle(m_player.x, m_player.y, m_player.width, m_player.height, m_player.color);
 
@@ -340,48 +371,64 @@ private:
                 m_renderPipeline.PushRectangle(brick.x, brick.y, brick.width, brick.height, brick.color);
             }
         }
+    }
 
-        // =================================================================
-        // LAYER 3: Overlay (Mouse Cursor & Game Over)
-        // =================================================================
+    // LAYER 3: Overlay (Mouse Cursor & Game State Overlay)
+    inline void RenderOverlay(const InputCommand& cmd) noexcept {
         // 마우스 커서는 화면 내 모든 요소보다 위에 있어야 하므로 가장 마지막에 렌더링 큐에 넣습니다.
         Color cursorColor = cmd.leftClickDown ? Config::Theme::HeartbeatActive : Config::Theme::PlayerNormal;
         m_renderPipeline.PushCircle(cmd.mouseX, cmd.mouseY, 5.0f, cursorColor);
 
-        // [Chapter 30 추가] 게임 오버 상태일 때 반투명 오버레이 렌더링
-        if (m_gameState == GameState::GameOver) {
-            m_renderPipeline.PushRectangle(0.0f, Config::PlayAreaY, Config::WindowWidth, Config::WindowHeight - Config::PlayAreaY, Fade(BLACK, 0.7f));
-            
-            const char* goText = "GAME OVER";
-            const char* rsText = "Press ENTER to Restart";
-            
-            int goWidth = MeasureText(goText, 40);
-            int rsWidth = MeasureText(rsText, 20);
-
-            m_renderPipeline.PushText(Config::ScreenCenterX - (goWidth / 2.0f), Config::ScreenCenterY - 30.0f, goText, 40, RED);
-            m_renderPipeline.PushText(Config::ScreenCenterX - (rsWidth / 2.0f), Config::ScreenCenterY + 20.0f, rsText, 20, RAYWHITE);
-        }
-        else if (m_gameState == GameState::GameClear) {
-            m_renderPipeline.PushRectangle(0.0f, Config::PlayAreaY, Config::WindowWidth, Config::WindowHeight - Config::PlayAreaY, Fade(BLACK, 0.7f));
-
-            const char* gcText = "VICTORY!";
-            const char* rsText = "Press ENTER to Restart";
-            int gcWidth = MeasureText(gcText, 40);
-            int rsWidth = MeasureText(rsText, 20);
-
-            m_renderPipeline.PushText(Config::ScreenCenterX - (gcWidth / 2.0f), Config::ScreenCenterY - 30.0f, gcText, 40, GREEN);
-            m_renderPipeline.PushText(Config::ScreenCenterX - (rsWidth / 2.0f), Config::ScreenCenterY + 20.0f, rsText, 20, RAYWHITE);
+        // 대기 및 진행 상태일 때는 오버레이 패스 (Early Exit)
+        if (m_gameState == GameState::Ready || m_gameState == GameState::Playing) {
+            return;
         }
 
-        // =================================================================
-        // Flush Render Commands
-        // =================================================================
-        m_window.BeginRender();    // HFT 권장: Window 내부에 ClearBackground(Config::Theme::Background) 적용
-        m_renderPipeline.Flush();  // 메모리 풀에 순차적으로 담긴 명령을 한 번에 CPU 캐시 프렌들리하게 렌더링
-        
-        // FPS 카운터는 UI 패널의 좌측 상단 여백에 위치시킵니다.
-        DrawFPS(static_cast<int>(Config::UIMargin), static_cast<int>(Config::UIMargin));
-        m_window.EndRender();
+        // [Chapter 30/34 추가] 상태 오버레이 (반투명 배경 덮개)
+        m_renderPipeline.PushRectangle(
+            0.0f, 
+            Config::PlayAreaY, 
+            Config::WindowWidth, 
+            Config::WindowHeight - Config::PlayAreaY, 
+            Fade(BLACK, 0.7f)
+        );
+
+        const char* mainText = nullptr;
+        Color textColor = WHITE;
+
+        // [HFT Optimization]: switch 문을 통한 O(1) Jump Table 상태 분기
+        switch (m_gameState) {
+            case GameState::GameOver:
+                mainText = "GAME OVER";
+                textColor = RED;
+                break;
+            case GameState::GameClear:
+                mainText = "VICTORY!";
+                textColor = GREEN;
+                break;
+            default:
+                return;
+        }
+
+        const char* restartText = "Press ENTER to Restart";
+        int mainTextWidth = MeasureText(mainText, 40);
+        int restartTextWidth = MeasureText(restartText, 20);
+
+        m_renderPipeline.PushText(
+            Config::ScreenCenterX - (mainTextWidth / 2.0f), 
+            Config::ScreenCenterY - 30.0f, 
+            mainText, 
+            40, 
+            textColor
+        );
+
+        m_renderPipeline.PushText(
+            Config::ScreenCenterX - (restartTextWidth / 2.0f), 
+            Config::ScreenCenterY + 20.0f, 
+            restartText, 
+            20, 
+            RAYWHITE
+        );
     }
 
 private:
