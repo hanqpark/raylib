@@ -79,4 +79,14 @@ namespace Config {
 
     // Chapter 16.  교재 실습용 누적 타이머 주기 (3초)
     constexpr float HeartbeatInterval = 3.0f;
+
+    // Chapter 32. 벽돌(Brick) 설정
+    constexpr int BrickRows = 5;
+    constexpr int BrickCols = 8;
+    constexpr int TotalBricks = BrickRows * BrickCols; // 컴파일 타임 상수
+
+    constexpr float BrickWidth = 80.0f;
+    constexpr float BrickHeight = 30.0f;
+    constexpr float BrickSpacing = 5.0f;
+    constexpr float BrickStartY = PlayAreaY + 20.0f; // UI 패널 아래부터 시작
 }

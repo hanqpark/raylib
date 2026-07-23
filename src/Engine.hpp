@@ -1,11 +1,13 @@
 #pragma once
 #include <cmath>
 #include <cstdint>
+#include <array>
 #include "Window.hpp"
 #include "Config.hpp"
 #include "InputManager.hpp"
 #include "Player.hpp"
 #include "Ball.hpp"
+#include "Brick.hpp"
 #include "RenderPipeline.hpp"
 
 // [HFT Optimization]: 1바이트 크기의 엄격한 타입(Enum Class)으로 FSM(유한 상태 기계) 구성
@@ -67,6 +69,26 @@ private:
             Config::BallRadius,
             Config::Theme::Ball
         };
+
+        // [Chapter 32 추가] 1차원 연속 배열을 통한 벽돌 초기화
+        // 루프를 돌며 가상의 2차원 그리드 좌표를 계산하여 할당합니다.
+        float startX = Config::ScreenCenterX - ((Config::BrickCols * (Config::BrickWidth + Config::BrickSpacing)) / 2.0f);
+
+        for (int row = 0; row < Config::BrickRows; ++row) {
+            for (int col = 0; col < Config::BrickCols; ++col) {
+                // 2D 인덱스를 1D 인덱스로 변환 (HFT 메모리 평탄화 기법)
+                int index = row * Config::BrickCols + col;
+
+                m_bricks[index] = BrickState{
+                    startX + (col * (Config::BrickWidth + Config::BrickSpacing)), // X 위치
+                    Config::BrickStartY + (row * (Config::BrickHeight + Config::BrickSpacing)), // Y 위치
+                    Config::BrickWidth,
+                    Config::BrickHeight,
+                    true, // 생성 시 무조건 살아있음
+                    Config::Theme::PlayerNormal // 벽돌 색상
+                };
+            }
+        }
     }
     void Update(float dt, const InputCommand& cmd) noexcept {
         // --- [HFT FSM] 상태에 따른 조기 차단 (Early Exit) ---
@@ -254,6 +276,13 @@ private:
         // [Chapter 25 추가] 공(Ball) 렌더링 (커스텀 RenderPipeline 버퍼에 푸시)
         m_renderPipeline.PushCircle(m_ball.x, m_ball.y, m_ball.radius, m_ball.color);
 
+        // [Chapter 32 추가] 살아있는 벽돌만 렌더링 파이프라인에 푸시 (분기 최소화)
+        // 메모리가 연속되어 있으므로 CPU 프리페처(Prefetcher)가 데이터를 매우 빠르게 미리 당겨옵니다.
+        for (const auto& brick : m_bricks) {
+            if (brick.isAlive) {
+                m_renderPipeline.PushRectangle(brick.x, brick.y, brick.width, brick.height, brick.color);
+            }
+        }
 
         // =================================================================
         // LAYER 3: Overlay (Mouse Cursor & Game Over)
@@ -308,4 +337,9 @@ private:
     // Chapter 16. 하트비트 타이머
     float m_timeAccumulator{0.0f};
     bool m_heartbeatState{false};
+
+    // Chapter 32. 벽돌(Brick) 상태 배열
+    // [HFT Optimization] 2차원 포인터 배열 대신, 1차원 std::array 사용
+    // 모든 벽돌 데이터가 메모리 상에 파편화 없이 한 줄로 배치되어 L1/L2 캐시 히트율을 극대화합니다.
+    std::array<BrickState, Config::TotalBricks> m_bricks;
 };
