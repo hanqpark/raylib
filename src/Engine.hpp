@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdint>
 #include <array>
+#include <utility>
 #include "Window.hpp"
 #include "Config.hpp"
 #include "InputManager.hpp"
@@ -9,6 +10,74 @@
 #include "Ball.hpp"
 #include "Brick.hpp"
 #include "RenderPipeline.hpp"
+
+// =========================================================================
+// [Chapter 39 추가] RAII 기반 텍스처 관리자 (Zero-Cost Abstraction)
+// =========================================================================
+// C 방식의 수동 메모리 관리를 C++ 소멸자로 자동화하여 메모리 누수를 원천 차단합니다.
+class TextureHandle final {
+private:
+    Texture2D m_texture;
+    bool m_isValid;
+
+public:
+    TextureHandle() noexcept : m_isValid(false), m_texture{0} {}
+
+    // explicit을 통해 암시적 형변환을 막고, 생성 시 즉시 텍스처를 VRAM에 적재합니다.
+    // [수정됨] 타겟 해상도와 투명화 처리할 색상을 인자로 추가로 받습니다.
+    explicit TextureHandle(const char* fileName, int targetWidth = 0, int targetHeight = 0, Color colorKey = BLACK) noexcept {
+        // 1. RAM으로 이미지 로드
+        Image img = LoadImage(fileName);
+        
+        if (img.data != nullptr) {
+            // 2. 지정된 색상(기본: 검정)을 투명(BLANK)으로 변환
+            ImageColorReplace(&img, colorKey, BLANK);
+
+            // 3. 타겟 사이즈가 지정되었다면 RAM 상태에서 리사이징 (게임 루프 렌더링 오버헤드 제거)
+            if (targetWidth > 0 && targetHeight > 0) {
+                ImageResize(&img, targetWidth, targetHeight);
+            }
+
+            // 4. 최적화된 이미지를 VRAM으로 업로드
+            m_texture = LoadTextureFromImage(img);
+            m_isValid = (m_texture.id != 0);
+
+            // 5. RAM 데이터 즉시 해제 (Zero-allocation)
+            UnloadImage(img);
+        } else {
+            m_isValid = false;
+            m_texture = Texture2D{0};
+        }
+    }
+
+    // 복사 방지: Double-Free(이중 해제) 버그 차단
+    TextureHandle(const TextureHandle&) = delete;
+    TextureHandle& operator=(const TextureHandle&) = delete;
+
+    // 이동 시맨틱: 소유권만 O(1) 로 이전
+    TextureHandle(TextureHandle&& other) noexcept : m_texture(other.m_texture), m_isValid(other.m_isValid) {
+        other.m_isValid = false; 
+    }
+
+    TextureHandle& operator=(TextureHandle&& other) noexcept {
+        if (this != &other) {
+            if (m_isValid) UnloadTexture(m_texture); 
+            m_texture = other.m_texture;
+            m_isValid = other.m_isValid;
+            other.m_isValid = false;
+        }
+        return *this;
+    }
+
+    ~TextureHandle() noexcept {
+        if (m_isValid) {
+            UnloadTexture(m_texture); // 스코프 이탈 시 자동 메모리 해제
+        }
+    }
+
+    inline const Texture2D& Get() const noexcept { return m_texture; }
+    inline bool IsValid() const noexcept { return m_isValid; }
+};
 
 // [HFT Optimization]: 1바이트 크기의 엄격한 타입(Enum Class)으로 FSM(유한 상태 기계) 구성
 enum class GameState : uint8_t {
@@ -21,6 +90,19 @@ enum class GameState : uint8_t {
 class Engine final {
 public:
     Engine() noexcept {
+        // [Chapter 39 추가] 게임 루프 진입 전 I/O를 100% 끝내서(Pre-load) 런타임 지연시간(Jitter) 차단
+        // [수정됨] Config에 정의된 물리적 크기에 맞춰 픽셀 리사이징 및 투명화 적용
+        m_paddleTex = TextureHandle("resources/paddle.png", static_cast<int>(Config::PaddleWidth), static_cast<int>(Config::PaddleHeight));
+        
+        // 공의 경우 반지름(Radius)을 사용하므로 지름(Diameter)으로 변환하여 리사이징
+        int ballDiameter = static_cast<int>(Config::BallRadius * 2.0f);
+        m_ballTex   = TextureHandle("resources/ball.png", ballDiameter, ballDiameter);
+        
+        m_brickTex  = TextureHandle("resources/brick.png", static_cast<int>(Config::BrickWidth), static_cast<int>(Config::BrickHeight));
+        
+        // 배경은 투명화가 필요 없으므로 게임에 사용하지 않는 더미 컬러(MAGENTA)를 키로 주고 화면 꽉 차게 설정
+        m_bgTex     = TextureHandle("resources/background.png", Config::WindowWidth, Config::WindowHeight, MAGENTA);
+
         ResetGame();
     }
 
@@ -34,14 +116,9 @@ public:
             float dt = GetFrameTime(); 
             
             // [교재의 핵심 3단계 파이프라인 Hot Path]
-            // 1. 입력 (Input Polling)
-            InputCommand cmd = InputManager::Poll();
-            
-            // 2. 갱신 (State Update)
-            Update(dt, cmd);
-            
-            // 3. 렌더링 (Render View)
-            Render(cmd);
+            InputCommand cmd = InputManager::Poll(); // 1. 입력 (Input Polling)
+            Update(dt, cmd);                         // 2. 갱신 (State Update)
+            Render(cmd);                             // 3. 렌더링 (Render View)
         }
     }
 
@@ -129,19 +206,24 @@ private:
     // [Render Hot Path]: 레이어별 순차적 렌더링 명령 푸시
     // m_renderPipeline의 상태를 변경하므로 const를 제거합니다.
     void Render(const InputCommand& cmd) noexcept {
+// 직접 렌더링 호출을 위해 파이프라인 상단으로 BeginRender 이동
+        m_window.BeginRender(); // HFT 권장: Window 내부에 ClearBackground(Config::Theme::Background) 적용
+
+        // 1. [Chapter 39 추가] 배경 텍스처 렌더링 (가장 밑단)
+        if (m_bgTex.IsValid()) {
+            DrawTexture(m_bgTex.Get(), 0, 0, WHITE);
+        }
+
+        // 파이프라인 버퍼에 렌더링 명령 적재
         RenderUIDashboard(); // LAYER 1: UI Dashboard & Telemetry Panel (상단 70px)
-        RenderGameWorld();   // LAYER 2: Pure Game World (Play Area)
+        RenderGameWorld();   // LAYER 2: Pure Game World (Play Area) (텍스처 직접 렌더링 + 미지원 시 기존 도형 푸시)
         RenderOverlay(cmd);  // LAYER 3: Overlay (Mouse Cursor & Game State Overlay)
 
-        // =================================================================
-        // Flush Render Commands
-        // =================================================================
-        m_window.BeginRender();    // HFT 권장: Window 내부에 ClearBackground(Config::Theme::Background) 적용
-        m_renderPipeline.Flush();  // 메모리 풀에 순차적으로 담긴 명령을 한 번에 CPU 캐시 프렌들리하게 렌더링
+        // 3. 파이프라인 큐 플러시 (UI 및 도형 일괄 렌더링)
+        m_renderPipeline.Flush(); // 메모리 풀에 순차적으로 담긴 명령을 한 번에 CPU 캐시 프렌들리하게 렌더링
         
-        // FPS 카운터는 UI 패널의 좌측 상단 여백에 위치시킵니다.
-        DrawFPS(static_cast<int>(Config::UIMargin), static_cast<int>(Config::UIMargin));
-        m_window.EndRender();
+        DrawFPS(static_cast<int>(Config::UIMargin), static_cast<int>(Config::UIMargin)); //
+        m_window.EndRender(); //
     }
 
     // =========================================================================
@@ -357,18 +439,34 @@ private:
     }
 
     // LAYER 2: Pure Game World (Play Area)
+    // [Chapter 39 변경] 도형 렌더링에서 텍스처 렌더링 우선으로 업데이트
     inline void RenderGameWorld() noexcept {
-        // [Chapter 28 변경] 사각형 패들 렌더링
-        m_renderPipeline.PushRectangle(m_player.x, m_player.y, m_player.width, m_player.height, m_player.color);
+        // 1. 패들 렌더링
+        if (m_paddleTex.IsValid()) {
+            DrawTextureV(m_paddleTex.Get(), {m_player.x, m_player.y}, WHITE);
+        } else {
+            // [Chapter 28 변경] 사각형 패들 렌더링
+            m_renderPipeline.PushRectangle(m_player.x, m_player.y, m_player.width, m_player.height, m_player.color);
+        }
 
-        // [Chapter 25 추가] 공(Ball) 렌더링 (커스텀 RenderPipeline 버퍼에 푸시)
-        m_renderPipeline.PushCircle(m_ball.x, m_ball.y, m_ball.radius, m_ball.color);
-
+        // 2. 공 렌더링
+        if (m_ballTex.IsValid()) {
+            DrawTextureV(m_ballTex.Get(), {m_ball.x - m_ball.radius, m_ball.y - m_ball.radius}, WHITE);
+        } else {
+            // [Chapter 25 추가] 공(Ball) 렌더링 (커스텀 RenderPipeline 버퍼에 푸시)
+            m_renderPipeline.PushCircle(m_ball.x, m_ball.y, m_ball.radius, m_ball.color);
+        }   
+        
+        // 3. 벽돌 렌더링
         // [Chapter 32 추가] 살아있는 벽돌만 렌더링 파이프라인에 푸시 (분기 최소화)
         // 메모리가 연속되어 있으므로 CPU 프리페처(Prefetcher)가 데이터를 매우 빠르게 미리 당겨옵니다.
         for (const auto& brick : m_bricks) {
             if (brick.isAlive) {
-                m_renderPipeline.PushRectangle(brick.x, brick.y, brick.width, brick.height, brick.color);
+                if (m_brickTex.IsValid()) {
+                    DrawTextureV(m_brickTex.Get(), {brick.x, brick.y}, WHITE);
+                } else {
+                    m_renderPipeline.PushRectangle(brick.x, brick.y, brick.width, brick.height, brick.color);
+                }
             }
         }
     }
@@ -458,4 +556,10 @@ private:
     // [HFT Optimization] 2차원 포인터 배열 대신, 1차원 std::array 사용
     // 모든 벽돌 데이터가 메모리 상에 파편화 없이 한 줄로 배치되어 L1/L2 캐시 히트율을 극대화합니다.
     std::array<BrickState, Config::TotalBricks> m_bricks;
+
+    // Chapter 39. 리소스 핸들 (RAII)
+    TextureHandle m_paddleTex;
+    TextureHandle m_ballTex;
+    TextureHandle m_brickTex;
+    TextureHandle m_bgTex;
 };
