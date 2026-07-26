@@ -406,6 +406,13 @@ private:
                     m_ball.vy = -m_ball.vy; // 상하 충돌: Y축 속도 반전
                 }
 
+                // =================================================================
+                // [속도 증가 로직 추가]
+                // 값비싼 수학 연산 없이 스칼라(Scalar) 배수 곱셈으로 벡터의 크기만 확장
+                // =================================================================
+                m_ball.vx *= Config::BallAccelerationRate;
+                m_ball.vy *= Config::BallAccelerationRate;
+
                 // 4. [Chapter 34 추가] O(1) 증감 연산으로 남은 벽돌 수 차감 및 승리 조건 검사
                 m_activeBrickCount--;
                 if (m_activeBrickCount == 0) {

@@ -93,4 +93,8 @@ namespace Config {
     // --- [Chapter 41 추가] 공 스프라이트 애니메이션 상수 ---
     constexpr uint8_t MaxBallFrames = 3;      // 총 프레임 개수
     constexpr float BallAnimInterval = 0.1f;  // 100ms 마다 프레임 전환 (초당 10프레임)
+
+    // 벽돌 1개 파괴 시 속도 증가율 (1.02f = 2% 증가)
+    // 기획에 따라 언제든지 쉽게 수정 가능합니다.
+    constexpr float BallAccelerationRate = 1.02f;
 }
