@@ -89,4 +89,8 @@ namespace Config {
     constexpr float BrickHeight = 30.0f;
     constexpr float BrickSpacing = 5.0f;
     constexpr float BrickStartY = PlayAreaY + 20.0f; // UI 패널 아래부터 시작
+
+    // --- [Chapter 41 추가] 공 스프라이트 애니메이션 상수 ---
+    constexpr uint8_t MaxBallFrames = 3;      // 총 프레임 개수
+    constexpr float BallAnimInterval = 0.1f;  // 100ms 마다 프레임 전환 (초당 10프레임)
 }

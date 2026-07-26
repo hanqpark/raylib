@@ -21,7 +21,7 @@ private:
     bool m_isValid;
 
 public:
-    TextureHandle() noexcept : m_isValid(false), m_texture{0} {}
+    TextureHandle() noexcept : m_texture{}, m_isValid(false) {}
 
     // explicit을 통해 암시적 형변환을 막고, 생성 시 즉시 텍스처를 VRAM에 적재합니다.
     // [수정됨] 타겟 해상도와 투명화 처리할 색상을 인자로 추가로 받습니다.
@@ -44,9 +44,10 @@ public:
 
             // 5. RAM 데이터 즉시 해제 (Zero-allocation)
             UnloadImage(img);
+
         } else {
             m_isValid = false;
-            m_texture = Texture2D{0};
+            m_texture = Texture2D{};
         }
     }
 
@@ -96,7 +97,12 @@ public:
         
         // 공의 경우 반지름(Radius)을 사용하므로 지름(Diameter)으로 변환하여 리사이징
         int ballDiameter = static_cast<int>(Config::BallRadius * 2.0f);
-        m_ballTex   = TextureHandle("resources/ball.png", ballDiameter, ballDiameter);
+        
+        // [Chapter 41 변경] 단일 텍스처(m_ballTex)를 제거하고 프레임 텍스처 배열을 VRAM에 사전 적재(Pre-load)
+        // 게임 루프 중 디스크 I/O를 원천 차단합니다.
+        m_ballAnimTex[0] = TextureHandle("resources/ball_0.png", ballDiameter, ballDiameter);
+        m_ballAnimTex[1] = TextureHandle("resources/ball_1.png", ballDiameter, ballDiameter);
+        m_ballAnimTex[2] = TextureHandle("resources/ball_2.png", ballDiameter, ballDiameter);
         
         m_brickTex  = TextureHandle("resources/brick.png", static_cast<int>(Config::BrickWidth), static_cast<int>(Config::BrickHeight));
         
@@ -194,6 +200,9 @@ private:
         UpdatePaddle(dt, cmd);
         UpdateBall(dt, cmd);
 
+        // [Chapter 41 추가] 물리 로직 연산이 끝난 후, 독립적인 시각 애니메이션 상태만 갱신
+        UpdateAnimations(dt);
+
         // [HFT Optimization] Playing 상태일 때만 충돌 연산 수행
         if (m_gameState == GameState::Playing) {
             CheckPaddleCollision();
@@ -289,6 +298,24 @@ private:
         }
     }
 
+    // =========================================================================
+    // [Chapter 41 추가] Zero-Cost Inlined 애니메이션 서브 파이프라인
+    // =========================================================================
+    inline void UpdateAnimations(float dt) noexcept {
+        m_ballAnimTimer += dt;
+        
+        if (m_ballAnimTimer >= Config::BallAnimInterval) {
+            // 잔여 시간 이월을 통한 애니메이션 Drift(밀림) 현상 방지
+            m_ballAnimTimer -= Config::BallAnimInterval;
+            
+            m_ballFrameIndex++;
+            // 분기 예측(Branch Prediction) 친화적인 O(1) 인덱스 순환
+            if (m_ballFrameIndex >= Config::MaxBallFrames) {
+                m_ballFrameIndex = 0;
+            }
+        }
+    }
+
     // --- 4. [Chapter 29 추가] 공 - 패들 충돌 처리 ---
     // [HFT Optimization]: 공이 아래로 이동 중(vy > 0)일 때만 충돌 검사를 수행합니다.
     // 불필요한 연산을 조기 차단(Early Exit)하고 다중 프레임 연쇄 충돌 버그를 완벽히 예방합니다.
@@ -359,8 +386,25 @@ private:
                 // 2. 점수 증가
                 m_score += 50;
 
-                // 3. 물리 반사: Y축 속도 반전
-                m_ball.vy = -m_ball.vy;
+                // 3. 물리 반사: 충돌면 판별 및 속도 반전 (새로 추가된 핵심 로직)
+                // 벽돌의 중심 좌표 계산
+                float brickCenterX = brick.x + (brick.width * 0.5f);
+                float brickCenterY = brick.y + (brick.height * 0.5f);
+
+                // 중심점 간의 거리(차이) 계산
+                float diffX = m_ball.x - brickCenterX;
+                float diffY = m_ball.y - brickCenterY;
+
+                // 직사각형 형태의 벽돌 규격에 맞춰 거리를 정규화(비율화)
+                float ratioX = std::abs(diffX) / (brick.width * 0.5f);
+                float ratioY = std::abs(diffY) / (brick.height * 0.5f);
+
+                // 중심축 대비 X축으로 더 치우쳐서 맞았다면 좌/우측 충돌, 아니면 상/하단 충돌
+                if (ratioX > ratioY) {
+                    m_ball.vx = -m_ball.vx; // 측면 충돌: X축 속도 반전
+                } else {
+                    m_ball.vy = -m_ball.vy; // 상하 충돌: Y축 속도 반전
+                }
 
                 // 4. [Chapter 34 추가] O(1) 증감 연산으로 남은 벽돌 수 차감 및 승리 조건 검사
                 m_activeBrickCount--;
@@ -449,9 +493,10 @@ private:
             m_renderPipeline.PushRectangle(m_player.x, m_player.y, m_player.width, m_player.height, m_player.color);
         }
 
-        // 2. 공 렌더링
-        if (m_ballTex.IsValid()) {
-            DrawTextureV(m_ballTex.Get(), {m_ball.x - m_ball.radius, m_ball.y - m_ball.radius}, WHITE);
+        // 2. [Chapter 41 변경] 공 애니메이션 렌더링
+        // std::array에서 현재 인덱스에 해당하는 텍스처를 O(1)으로 꺼내어 출력
+        if (m_ballAnimTex[m_ballFrameIndex].IsValid()) {
+            DrawTextureV(m_ballAnimTex[m_ballFrameIndex].Get(), {m_ball.x - m_ball.radius, m_ball.y - m_ball.radius}, WHITE);
         } else {
             // [Chapter 25 추가] 공(Ball) 렌더링 (커스텀 RenderPipeline 버퍼에 푸시)
             m_renderPipeline.PushCircle(m_ball.x, m_ball.y, m_ball.radius, m_ball.color);
@@ -559,7 +604,12 @@ private:
 
     // Chapter 39. 리소스 핸들 (RAII)
     TextureHandle m_paddleTex;
-    TextureHandle m_ballTex;
     TextureHandle m_brickTex;
     TextureHandle m_bgTex;
+
+    // [Chapter 41 추가] 스프라이트 애니메이션 상태 관리 변수 (기존 m_ballTex 대체)
+    // 힙 할당을 배제하고 인접한 메모리 공간에 연속으로 배치하여 캐시 히트율 보장
+    std::array<TextureHandle, Config::MaxBallFrames> m_ballAnimTex; 
+    float m_ballAnimTimer{0.0f};                              
+    uint8_t m_ballFrameIndex{0};
 };
