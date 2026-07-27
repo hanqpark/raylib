@@ -64,7 +64,7 @@ The codebase strictly adheres to a decoupled, modular directory architecture:
 ### Prerequisites
 
 - **C++17 Compatible Compiler** (GCC 9+, Clang 10+, or MSVC 2019+)
-- **CMake** (v3.16+)
+- **CMake** (v3.15+)
 - **Raylib** (Installed via system package manager or local install)
 
 ### Build Instructions
