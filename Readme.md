@@ -1,4 +1,4 @@
-# ⚡ Low-Latency Zero-Allocation Brick Breaker Engine (C++17)
+# Low-Latency Zero-Allocation Brick Breaker Engine (C++17)
 
 A deterministic, high-performance, **zero-allocation** Brick Breaker game engine built in C++17 and Raylib.
 
@@ -55,58 +55,6 @@ The codebase strictly adheres to a decoupled, modular directory architecture:
         ├── Brick.hpp
         ├── Config.hpp
         └── Player.hpp
-```
-
----
-
-## 🚀 Technical Code Snippet
-
-### Move-Only RAII Resource Management (`ResourceHandle.hpp`)
-
-```cpp
-// Explicit move semantics enforce single ownership and zero manual cleanup
-class TextureHandle final {
-public:
-    TextureHandle() noexcept = default;
-    explicit TextureHandle(const char* filepath, int width = 0, int height = 0) noexcept {
-        if (filepath) {
-            m_texture = LoadTexture(filepath);
-            if (width > 0 && height > 0) {
-                m_texture.width = width;
-                m_texture.height = height;
-            }
-        }
-    }
-
-    ~TextureHandle() noexcept { Unload(); }
-
-    // Move-only semantics (Prevents accidental GPU resource copies)
-    TextureHandle(TextureHandle&& other) noexcept : m_texture(other.m_texture) {
-        other.m_texture = {};
-    }
-
-    TextureHandle& operator=(TextureHandle&& other) noexcept {
-        if (this != &other) {
-            Unload();
-            m_texture = other.m_texture;
-            other.m_texture = {};
-        }
-        return *this;
-    }
-
-    TextureHandle(const TextureHandle&) = delete;
-    TextureHandle& operator=(const TextureHandle&) = delete;
-
-private:
-    inline void Unload() noexcept {
-        if (m_texture.id != 0) {
-            UnloadTexture(m_texture);
-            m_texture = {};
-        }
-    }
-    Texture2D m_texture{};
-};
-
 ```
 
 ---
