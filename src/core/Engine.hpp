@@ -158,6 +158,9 @@ inline void Engine::ResetGame() noexcept {
 
 // [Update Hot Path]: 프레임별 상태 및 물리 연산 통제
 inline void Engine::Update(float dt, const InputCommand& cmd) noexcept {
+    // [Hot-Path] 매 프레임 BGM 오디오 스트림 버퍼 갱신 (지연 없는 백그라운드 디코딩)
+    m_resourceMgr.UpdateBGM(MusicID::MainBGM);
+
     // --- [HFT FSM] 상태에 따른 조기 차단 (Early Exit) ---
     // 게임 오버 또는 게임 클리어 상태라면 물리 연산을 전부 건너뛰어 CPU 사이클 절약
     if (m_gameState == GameState::GameOver || m_gameState == GameState::GameClear) {

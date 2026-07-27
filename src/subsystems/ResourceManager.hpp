@@ -28,6 +28,12 @@ enum class SoundID : uint8_t {
     Max
 };
 
+// [추가] BGM 식별용 Enum
+enum class MusicID : uint8_t {
+    MainBGM = 0,
+    Max
+};
+
 class ResourceManager final {
 public:
     ResourceManager() noexcept = default;
@@ -51,6 +57,15 @@ public:
         m_sounds[static_cast<size_t>(id)].Play();
     }
 
+    // [추가] BGM 제어 인라인 메서드
+    inline void PlayBGM(MusicID id) const noexcept{
+        m_musics[static_cast<size_t>(id)].Play();
+    }
+
+    inline void UpdateBGM(MusicID id) const noexcept{
+        m_musics[static_cast<size_t>(id)].Update();
+    }
+
 private:
     // [HFT 구조] 힙 할당(unordered_map)을 배제한 스택/플랫 메모리 연속 배열
     
@@ -61,6 +76,9 @@ private:
     
     // [Chapter 43 추가] 오디오 리소스 핸들 (RAII)
     std::array<SoundHandle, static_cast<size_t>(SoundID::Max)> m_sounds;
+
+    // [Chapter 44 추가] BGM 리소스 핸들 (RAII)
+    std::array<MusicHandle, static_cast<size_t>(MusicID::Max)> m_musics;
 };
 
 // =========================================================================
@@ -89,4 +107,10 @@ inline void ResourceManager::PreloadResources() noexcept{
     m_sounds[static_cast<size_t>(SoundID::Hit)] = SoundHandle(DIR_SND "hit.wav");
     m_sounds[static_cast<size_t>(SoundID::Break)] = SoundHandle(DIR_SND "break.wav");
     m_sounds[static_cast<size_t>(SoundID::GameOver)] = SoundHandle(DIR_SND "gameover.wav");
+
+    // [Chapter 44 추가] BGM 리소스 Pre-load
+    m_musics[static_cast<size_t>(MusicID::MainBGM)] = MusicHandle(DIR_SND "Bad Memory (feat. Devyn Rush) - Blue Deer.mp3");
+
+    PlayBGM(MusicID::MainBGM);
 }
+

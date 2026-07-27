@@ -135,3 +135,66 @@ public:
     inline const Texture2D& Get() const noexcept { return m_texture; }
     inline bool IsValid() const noexcept { return m_isValid; }
 };
+
+// =========================================================================
+// [MusicHandle] Raylib Music Stream RAII Wrapper (Move-Only, Zero-Allocation)
+// =========================================================================
+class MusicHandle final {
+public:
+    MusicHandle() noexcept : m_music{} {}
+
+    explicit MusicHandle(const char* filepath) noexcept{
+        if (filepath) {
+            m_music = LoadMusicStream(filepath);
+        }
+    }
+
+    ~MusicHandle() noexcept {
+        Unload();
+    }
+
+    // Move Semantics (동적 할당 없는 소유권 이전)
+    MusicHandle(MusicHandle&& other) noexcept : m_music(other.m_music) {
+        other.m_music = {};
+    }
+
+    MusicHandle& operator=(MusicHandle&& other) noexcept {
+        if (this != &other) {
+            Unload();
+            m_music = other.m_music;
+            other.m_music = {};
+        }
+        return *this;
+    }
+
+    // Copy 금지 (오디오 스트림 중복 해제 방지)
+    MusicHandle(const MusicHandle&) = delete;
+    MusicHandle& operator=(const MusicHandle&) = delete;
+
+    inline void Play() const noexcept{
+        if (IsValid()) PlayMusicStream(m_music);
+    }
+
+    // [Hot-Path] 매 프레임 오디오 디코딩 버퍼를 갱신하는 핵심 인라인 함수
+    inline void Update() const noexcept{
+        if (IsValid()) UpdateMusicStream(m_music);
+    }
+
+    inline void Stop() const noexcept{
+        if (IsValid()) StopMusicStream(m_music);
+    }
+
+    inline bool IsValid() const noexcept{
+        return m_music.ctxData != nullptr;
+    }
+
+private:
+    inline void Unload() noexcept{
+        if (IsValid()) {
+            UnloadMusicStream(m_music);
+            m_music = {};
+        }
+    }
+
+    ::Music m_music{};
+};
