@@ -18,11 +18,11 @@ set(SOURCES
     src/main.cpp
 )
 
-add_executable(hft_sandbox ${SOURCES})
+add_executable(BrickBreaker ${SOURCES})
 
 # [추가] HFT 아키텍처에 맞춘 레이어별 인클루드 경로 명시적 주입
 # 이제 소스 코드 내에서 #include "entities/Ball.hpp" 또는 #include "Ball.hpp" 모두 사용 가능합니다.
-target_include_directories(hft_sandbox PRIVATE 
+target_include_directories(BrickBreaker PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/types
     ${CMAKE_CURRENT_SOURCE_DIR}/src/platform
@@ -31,7 +31,7 @@ target_include_directories(hft_sandbox PRIVATE
 )
 
 if(APPLE)
-    target_link_libraries(hft_sandbox 
+    target_link_libraries(BrickBreaker 
         raylib 
         "-framework OpenGL" 
         "-framework Cocoa" 
