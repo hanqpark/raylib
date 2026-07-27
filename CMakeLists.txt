@@ -13,18 +13,22 @@ set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall -Wextra -Wpedantic")
 include_directories(/usr/local/include)
 link_directories(/usr/local/lib)
 
-# [수정] 소스 파일 경로를 src/ 내부로 명시적 변경
+# [수정] 진입점 소스 파일만 지정 (헤더 파일은 target_include_directories로 해결)
 set(SOURCES
     src/main.cpp
-    src/Engine.hpp
-    src/Window.hpp
-    src/Config.hpp
 )
 
 add_executable(hft_sandbox ${SOURCES})
 
-# 컴파일러가 src/ 내부의 헤더 파일들을 서로 쉽게 찾을 수 있도록 인클루드 경로 주입
-target_include_directories(hft_sandbox PRIVATE src)
+# [추가] HFT 아키텍처에 맞춘 레이어별 인클루드 경로 명시적 주입
+# 이제 소스 코드 내에서 #include "entities/Ball.hpp" 또는 #include "Ball.hpp" 모두 사용 가능합니다.
+target_include_directories(hft_sandbox PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/types
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/platform
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/subsystems
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+)
 
 if(APPLE)
     target_link_libraries(hft_sandbox 

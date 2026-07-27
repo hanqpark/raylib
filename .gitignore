@@ -29,3 +29,5 @@ build/
 # 혹시 발생할 수 있는 코어 덤프 파일이나 정적 분석 파일
 *.core
 *.log
+
+Engine2.hpp
