@@ -10,7 +10,8 @@
 #include "Ball.hpp"
 #include "Brick.hpp"
 #include "RenderPipeline.hpp"
-#include "ResourceHandle.hpp"
+#include "ResourceManager.hpp" // [추가] 리소스 관리 매니저
+#include "UIManager.hpp"       // [추가] UI 및 타이머 로직 관리 매니저
 
 // [HFT Optimization]: 1바이트 크기의 엄격한 타입(Enum Class)으로 FSM(유한 상태 기계) 구성
 enum class GameState : uint8_t {
@@ -64,59 +65,26 @@ private:
     uint32_t m_score;
     uint32_t m_activeBrickCount; // [Chapter 34 추가] 남은 벽돌 수
 
-    // Chapter 15. UI 버튼의 현재 활성화 상태
-    bool m_isButtonActive{false};
-
-    // Chapter 16. 하트비트 타이머
-    float m_timeAccumulator{0.0f};
-    bool m_heartbeatState{false};
-
     // Chapter 32. 벽돌(Brick) 상태 배열
     // [HFT Optimization] 2차원 포인터 배열 대신, 1차원 std::array 사용
     // 모든 벽돌 데이터가 메모리 상에 파편화 없이 한 줄로 배치되어 L1/L2 캐시 히트율을 극대화합니다.
     std::array<BrickState, Config::TotalBricks> m_bricks;
 
-    // Chapter 39. 리소스 핸들 (RAII)
-    TextureHandle m_paddleTex;
-    TextureHandle m_brickTex;
-    TextureHandle m_bgTex;
-
-    // [Chapter 41 추가] 스프라이트 애니메이션 상태 관리 변수 (기존 m_ballTex 대체)
+    // [Chapter 41 추가] 스프라이트 애니메이션 상태 관리 변수
     // 힙 할당을 배제하고 인접한 메모리 공간에 연속으로 배치하여 캐시 히트율 보장
-    std::array<TextureHandle, Config::MaxBallFrames> m_ballAnimTex; 
     float m_ballAnimTimer{0.0f};                              
     uint8_t m_ballFrameIndex{0};
 
-    // [Chapter 43 추가] 오디오 리소스 핸들 (RAII)
-    SoundHandle m_hitSound;
-    SoundHandle m_breakSound;
-    SoundHandle m_gameOverSound;
+    // [새로운 DOD 기반 분리 매니저 적용]
+    ResourceManager m_resourceMgr;
+    UIManager m_uiMgr;
 };
 
 
 inline Engine::Engine() noexcept {
     // [Chapter 39 추가] 게임 루프 진입 전 I/O를 100% 끝내서(Pre-load) 런타임 지연시간(Jitter) 차단
-    // [수정됨] Config에 정의된 물리적 크기에 맞춰 픽셀 리사이징 및 투명화 적용
-    m_paddleTex = TextureHandle("resources/paddle.png", static_cast<int>(Config::PaddleWidth), static_cast<int>(Config::PaddleHeight));
-    
-    // 공의 경우 반지름(Radius)을 사용하므로 지름(Diameter)으로 변환하여 리사이징
-    int ballDiameter = static_cast<int>(Config::BallRadius * 2.0f);
-    
-    // [Chapter 41 변경] 단일 텍스처(m_ballTex)를 제거하고 프레임 텍스처 배열을 VRAM에 사전 적재(Pre-load)
-    // 게임 루프 중 디스크 I/O를 원천 차단합니다.
-    m_ballAnimTex[0] = TextureHandle("resources/ball_0.png", ballDiameter, ballDiameter);
-    m_ballAnimTex[1] = TextureHandle("resources/ball_1.png", ballDiameter, ballDiameter);
-    m_ballAnimTex[2] = TextureHandle("resources/ball_2.png", ballDiameter, ballDiameter);
-    
-    m_brickTex  = TextureHandle("resources/brick.png", static_cast<int>(Config::BrickWidth), static_cast<int>(Config::BrickHeight));
-    
-    // 배경은 투명화가 필요 없으므로 게임에 사용하지 않는 더미 컬러(MAGENTA)를 키로 주고 화면 꽉 차게 설정
-    m_bgTex     = TextureHandle("resources/background.png", Config::WindowWidth, Config::WindowHeight, MAGENTA);
-
-    // [Chapter 43 추가] 사운드 파일 Pre-load (디스크 I/O 완전 차단)
-    m_hitSound      = SoundHandle("resources/hit.wav");
-    m_breakSound    = SoundHandle("resources/break.wav");
-    m_gameOverSound = SoundHandle("resources/gameover.wav");
+    // 외부 ResourceManager 위임을 통해 하드코딩된 리소스 코드가 모두 사라짐
+    m_resourceMgr.PreloadResources();
 
     ResetGame();
 }
@@ -224,8 +192,8 @@ inline void Engine::Render(const InputCommand& cmd) noexcept {
     m_window.BeginRender(); // HFT 권장: Window 내부에 ClearBackground(Config::Theme::Background) 적용
 
     // 1. [Chapter 39 추가] 배경 텍스처 렌더링 (가장 밑단)
-    if (m_bgTex.IsValid()) {
-        DrawTexture(m_bgTex.Get(), 0, 0, WHITE);
+    if (m_resourceMgr.IsTextureValid(TextureID::Background)) {
+        DrawTexture(m_resourceMgr.GetTexture(TextureID::Background), 0, 0, WHITE);
     }
 
     // 파이프라인 버퍼에 렌더링 명령 적재
@@ -299,7 +267,7 @@ inline void Engine::UpdateBall(float dt, const InputCommand& cmd) noexcept {
         // [Chapter 30 변경] 기존의 하단 반사 로직을 '게임 오버 판정'으로 교체
         else if (m_ball.y + m_ball.radius > Config::WindowHeight) {
             m_gameState = GameState::GameOver; // 1. 게임 오버 상태 전환
-            m_gameOverSound.Play();            // 2. 게임 오버 사운드 재생
+            m_resourceMgr.PlaySoundTrack(SoundID::GameOver); // 2. 게임 오버 사운드 재생
         }
     }
 }
@@ -370,7 +338,7 @@ inline void Engine::CheckPaddleCollision() noexcept {
         m_score += 10;
 
         // 패들 충돌 시 사운드 재생
-        m_hitSound.Play(); 
+        m_resourceMgr.PlaySoundTrack(SoundID::Hit); 
     }
 }
 
@@ -428,7 +396,7 @@ inline void Engine::CheckBrickCollisions() noexcept {
                 m_gameState = GameState::GameClear;
             }
 
-            m_breakSound.Play(); // 벽돌 충돌 시 사운드 재생
+            m_resourceMgr.PlaySoundTrack(SoundID::Break); // 벽돌 충돌 시 사운드 재생
 
             // [중요 HFT 분기 팁] 충돌 직후 즉시 루프 탈출(break)
             // 한 프레임(Tick) 안에 공이 2개 이상의 벽돌과 동시에 충돌 판정이 일어나
@@ -440,31 +408,8 @@ inline void Engine::CheckBrickCollisions() noexcept {
 
 // --- 6. 마우스 UI 버튼 로직 & 7. 논블로킹 누적 타이머 ---
 inline void Engine::UpdateUIAndTimers(float dt, const InputCommand& cmd) noexcept {
-    /* 마우스 UI 버튼 로직 (Bounds Check)
-       교재 내용: "마우스 x 좌표가 버튼의 왼쪽과 오른쪽 사이에 있고, y 좌표가 위쪽과 아래쪽 사이에 있으면..."
-       이 논리는 HFT의 Price Band(가격 상하한선) 체크와 동일한 분기 구조를 가집니다. */
-    bool isMouseOverButton =
-        (cmd.mouseX >= Config::UIButtonX) & 
-        (cmd.mouseX <= Config::UIButtonX + Config::UIButtonWidth) &
-        (cmd.mouseY >= Config::UIButtonY) & 
-        (cmd.mouseY <= Config::UIButtonY + Config::UIButtonHeight);
-
-    // 마우스가 버튼 위에 '있고(AND)', '단발성 클릭'이 발생했다면 버튼 액션 수행
-    if (isMouseOverButton & cmd.leftClickPressed) {
-        m_isButtonActive = !m_isButtonActive; // 버튼 상태 토글
-    }
-
-    // 논블로킹 누적 타이머 (Heartbeat / Timer)
-    m_timeAccumulator += dt; // 매 프레임의 시간을 누적
-
-    // 누적된 시간이 우리가 설정한 간격(3초)을 넘었는지 확인
-    if (m_timeAccumulator >= Config::HeartbeatInterval) {
-        // [HFT 미세 팁] m_timeAccumulator = 0.0f; 로 초기화하지 않고 초과한 기준치(3.0)만 빼서 잔여 시간 이월 (Drift 예방)
-        m_timeAccumulator -= Config::HeartbeatInterval;
-
-        // 3초마다 수행할 로직 (UI 상태 토글)
-        m_heartbeatState = !m_heartbeatState;
-    }
+    // 모든 UI 및 타이머 로직을 UIManager로 완벽히 위임
+    m_uiMgr.Update(dt, cmd);
 }
 
 // =========================================================================
@@ -473,48 +418,26 @@ inline void Engine::UpdateUIAndTimers(float dt, const InputCommand& cmd) noexcep
 
 // LAYER 1: UI Dashboard & Telemetry Panel (상단 70px)
 inline void Engine::RenderUIDashboard() noexcept {
-    // 1-1. 대시보드 배경
-    m_renderPipeline.PushRectangle(0.0f, 0.0f, Config::WindowWidth, Config::UIPanelHeight, Config::Theme::UIPanelBg);
-
-    // 1-2. [Chapter 30 변경] 타이틀 대신 현재 점수(Score) 출력
-    const char* scoreText = TextFormat("SCORE: %u", m_score);
-    m_renderPipeline.PushText(Config::ScreenCenterX - 40.0f, 15.0f, scoreText, 20, Config::Theme::TextTitle);
-
-    // 1-3. 텔레메트리 디버그 정보 (좌측)
-    const char* debugInfo = TextFormat("Paddle X: %.1f | Timer: %.2f", m_player.x, m_timeAccumulator);
-    m_renderPipeline.PushText(Config::UIMargin, Config::UIPanelHeight - 25.0f, debugInfo, 16, Config::Theme::TextNormal);
-
-    // 1-4. UI 상단 버튼 (우측 중간)
-    Color btnColor = m_isButtonActive ? Config::Theme::ButtonActive : Config::Theme::ButtonDefault;
-    m_renderPipeline.PushRectangle(Config::UIButtonX, Config::UIButtonY, Config::UIButtonWidth, Config::UIButtonHeight, btnColor);
-
-    const char* btnText = "CLICK";
-    int btnFontSize = 16;
-    int textWidth = MeasureText(btnText, btnFontSize);
-    float textX = Config::UIButtonX + (Config::UIButtonWidth - textWidth) / 2.0f;
-    float textY = Config::UIButtonY + (Config::UIButtonHeight - btnFontSize) / 2.0f;
-    m_renderPipeline.PushText(textX, textY, btnText, btnFontSize, BLACK);
-
-    // 1-5. Heartbeat 인디케이터 (우측 끝)
-    Color heartbeatColor = m_heartbeatState ? Config::Theme::HeartbeatActive : Config::Theme::HeartbeatNormal;
-    m_renderPipeline.PushCircle(Config::WindowWidth - 30.0f, Config::UIPanelHeight / 2.0f, 12.0f, heartbeatColor);
+    // 렌더링 파이프라인과 게임 상태 데이터(점수, 패들위치)만 주입하여 렌더링 위임
+    m_uiMgr.RenderDashboard(m_renderPipeline, m_score, m_player.x);
 }
 
 // LAYER 2: Pure Game World (Play Area)
 // [Chapter 39 변경] 도형 렌더링에서 텍스처 렌더링 우선으로 업데이트
 inline void Engine::RenderGameWorld() noexcept {
     // 1. 패들 렌더링
-    if (m_paddleTex.IsValid()) {
-        DrawTextureV(m_paddleTex.Get(), {m_player.x, m_player.y}, WHITE);
+    if (m_resourceMgr.IsTextureValid(TextureID::Paddle)) {
+        DrawTextureV(m_resourceMgr.GetTexture(TextureID::Paddle), {m_player.x, m_player.y}, WHITE);
     } else {
         // [Chapter 28 변경] 사각형 패들 렌더링
         m_renderPipeline.PushRectangle(m_player.x, m_player.y, m_player.width, m_player.height, m_player.color);
     }
 
     // 2. [Chapter 41 변경] 공 애니메이션 렌더링
-    // std::array에서 현재 인덱스에 해당하는 텍스처를 O(1)으로 꺼내어 출력
-    if (m_ballAnimTex[m_ballFrameIndex].IsValid()) {
-        DrawTextureV(m_ballAnimTex[m_ballFrameIndex].Get(), {m_ball.x - m_ball.radius, m_ball.y - m_ball.radius}, WHITE);
+    // O(1) 캐시 접근을 위한 텍스처 배열 직접 계산
+    TextureID currentBallTex = static_cast<TextureID>(static_cast<uint8_t>(TextureID::BallFrame0) + m_ballFrameIndex);
+    if (m_resourceMgr.IsTextureValid(currentBallTex)) {
+        DrawTextureV(m_resourceMgr.GetTexture(currentBallTex), {m_ball.x - m_ball.radius, m_ball.y - m_ball.radius}, WHITE);
     } else {
         // [Chapter 25 추가] 공(Ball) 렌더링 (커스텀 RenderPipeline 버퍼에 푸시)
         m_renderPipeline.PushCircle(m_ball.x, m_ball.y, m_ball.radius, m_ball.color);
@@ -525,8 +448,8 @@ inline void Engine::RenderGameWorld() noexcept {
     // 메모리가 연속되어 있으므로 CPU 프리페처(Prefetcher)가 데이터를 매우 빠르게 미리 당겨옵니다.
     for (const auto& brick : m_bricks) {
         if (brick.isAlive) {
-            if (m_brickTex.IsValid()) {
-                DrawTextureV(m_brickTex.Get(), {brick.x, brick.y}, WHITE);
+            if (m_resourceMgr.IsTextureValid(TextureID::Brick)) {
+                DrawTextureV(m_resourceMgr.GetTexture(TextureID::Brick), {brick.x, brick.y}, WHITE);
             } else {
                 m_renderPipeline.PushRectangle(brick.x, brick.y, brick.width, brick.height, brick.color);
             }
