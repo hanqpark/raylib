@@ -1,4 +1,4 @@
-# Low-Latency Brick Breaker Engine (C++17)
+# Raylib Brick Breaker
 
 A deterministic, high-performance, **zero-allocation** Brick Breaker game engine built in C++17 and Raylib.
 
